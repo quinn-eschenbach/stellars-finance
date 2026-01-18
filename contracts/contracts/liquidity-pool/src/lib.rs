@@ -331,6 +331,11 @@ impl LiquidityPool {
         // tokens = (shares * balance) / total_shares
         let tokens_to_return = (shares * balance) / total_shares;
 
+        // Prevent burning shares without receiving tokens
+        if tokens_to_return == 0 {
+            panic!("withdrawal too small to return tokens");
+        }
+
         // Check available liquidity
         let reserved = get_reserved_liquidity(&env) as i128;
         let available = balance - reserved;

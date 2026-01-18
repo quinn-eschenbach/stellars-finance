@@ -285,3 +285,41 @@ fn test_zero_shares_deposit_rejected() {
     // This should panic with "deposit too small to mint shares"
     client.deposit(&user2, &1);
 }
+
+#[test]
+#[should_panic(expected = "withdrawal too small to return tokens")]
+fn test_zero_tokens_withdrawal_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user1 = Address::generate(&env);
+
+    // Create token contract
+    let (token_client, token_admin) = create_token_contract(&env, &admin);
+    token_admin.mint(&user1, &1_000_000);
+
+    // Deploy config manager
+    let config_manager_id = create_mock_config_manager(&env, &admin);
+
+    // Deploy liquidity pool contract
+    let contract_id = env.register(LiquidityPool, ());
+    let client = LiquidityPoolClient::new(&env, &contract_id);
+    client.initialize(&admin, &config_manager_id, &token_client.address);
+
+    // User1 deposits 1_000_000 tokens, gets 1_000_000 shares
+    client.deposit(&user1, &1_000_000);
+
+    // Simulate pool losing value by transferring tokens OUT (e.g., paying trader profits)
+    // Transfer out 999_999 tokens, leaving only 1 token in pool
+    token_client.transfer(&contract_id, &admin, &999_999);
+
+    // Pool state now:
+    // - balance = 1
+    // - total_shares = 1_000_000
+    //
+    // User1 tries to withdraw 1 share:
+    // tokens_to_return = (1 * 1) / 1_000_000 = 0
+    // This should panic with "withdrawal too small to return tokens"
+    client.withdraw(&user1, &1);
+}
