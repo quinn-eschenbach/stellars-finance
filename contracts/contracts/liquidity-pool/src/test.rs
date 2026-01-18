@@ -224,13 +224,64 @@ fn test_extreme_values() {
     let shares1 = client.deposit(&user1, &large_deposit);
     assert_eq!(shares1, large_deposit);
 
-    // Test with very small deposit relative to pool size
+    // Test with small deposit that still yields shares (1:1 ratio here)
     let small_deposit = 1;
     let shares2 = client.deposit(&user2, &small_deposit);
-    // Should get 0 shares due to rounding (1 * 1_000_000_000 / 1_000_000_000 = 1)
     assert_eq!(shares2, 1);
 
     // Test withdrawal of small shares
     let withdrawn = client.withdraw(&user2, &1);
     assert_eq!(withdrawn, 1);
+}
+
+#[test]
+#[should_panic(expected = "deposit too small to mint shares")]
+fn test_zero_shares_deposit_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+
+    // Create token contract
+    let (token_client, token_admin) = create_token_contract(&env, &admin);
+
+    // Mint tokens
+    token_admin.mint(&user1, &1_000_000_000_000);
+    token_admin.mint(&user2, &1_000_000_000_000);
+
+    // Deploy config manager
+    let config_manager_id = create_mock_config_manager(&env, &admin);
+
+    // Deploy liquidity pool contract
+    let contract_id = env.register(LiquidityPool, ());
+    let client = LiquidityPoolClient::new(&env, &contract_id);
+
+    // Initialize the pool
+    client.initialize(&admin, &config_manager_id, &token_client.address);
+
+    // User1 deposits a large amount first
+    let large_deposit = 1_000_000_000_000;
+    client.deposit(&user1, &large_deposit);
+
+    // User2 tries to deposit an amount that would yield 0 shares
+    // shares = (amount * total_shares) / pool_value = (1 * 1_000_000_000_000) / 1_000_000_000_000 = 1
+    // So we need a deposit where (amount * total_shares) < pool_value
+    // With pool_value = 1_000_000_000_000 and total_shares = 1_000_000_000_000
+    // We need amount < 1, but minimum is 1, so this case won't trigger with equal values
+
+    // To trigger zero shares: pool_value_before must be > amount * total_shares
+    // After large deposit: pool = 1_000_000_000_000, shares = 1_000_000_000_000
+    // Depositing 1 token: shares_to_mint = (1 * 1_000_000_000_000) / 1_000_000_000_000 = 1
+    // This won't trigger the panic, so we need a different setup.
+
+    // Let's artificially create the scenario by having pool gain value (simulating LP profit)
+    // We can do this by directly transferring tokens to the pool without deposit
+    token_admin.mint(&contract_id, &1_000_000_000_000); // Double the pool balance
+
+    // Now: pool_balance = 2_000_000_000_000, total_shares = 1_000_000_000_000
+    // Depositing 1 token: shares = (1 * 1_000_000_000_000) / 2_000_000_000_000 = 0
+    // This should panic with "deposit too small to mint shares"
+    client.deposit(&user2, &1);
 }

@@ -276,6 +276,11 @@ impl LiquidityPool {
             (amount * total_shares) / pool_value_before
         };
 
+        // Prevent zero-share deposits that would lock user funds
+        if shares_to_mint == 0 {
+            panic!("deposit too small to mint shares");
+        }
+
         // Mint shares to user
         mint_shares(&env, &user, shares_to_mint);
 
