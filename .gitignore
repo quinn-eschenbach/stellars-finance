@@ -30,4 +30,7 @@ npm-debug.log*
 *.tmp
 .cache/
 
+# Soroban test snapshots
+test_snapshots/
+
 Stellars Finance - Techincal Architecture.md
