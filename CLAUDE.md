@@ -195,7 +195,147 @@ OrderType::TakeProfit // Close position to secure gains
 
 # Frontend
 
-TODO
+## Tech Stack
+- **Framework**: React 18 + TypeScript
+- **Build**: Vite 5
+- **Styling**: Tailwind CSS + shadcn/ui (Radix primitives)
+- **State**: React Context + TanStack Query
+- **Charts**: TradingView Lightweight Charts + Recharts
+- **Wallet**: Freighter (`@stellar/freighter-api`)
+
+## Directory Structure
+```
+frontend/src/
+├── components/           # React components
+│   ├── ui/              # shadcn/ui primitives (button, dialog, etc.)
+│   ├── Header.tsx       # Navigation + wallet connect
+│   ├── TradePanel.tsx   # Position opening form
+│   ├── PositionsPanel.tsx
+│   ├── TradeChart.tsx   # Candlestick chart
+│   └── ...
+├── contexts/            # React Context providers
+│   ├── WalletContext.tsx   # Freighter connection state
+│   └── PriceContext.tsx    # Real-time Binance price feed
+├── hooks/               # TanStack Query hooks
+│   ├── usePositionManager.ts  # Position CRUD + PnL
+│   ├── useLiquidityPool.ts    # Vault deposits/withdrawals
+│   └── useFaucet.ts           # Token minting
+├── pages/               # Route pages
+│   ├── Home.tsx         # Markets overview
+│   ├── Trade.tsx        # Trading interface
+│   ├── Vault.tsx        # Liquidity pool
+│   └── Faucet.tsx       # Test token minting
+├── services/            # Contract interaction layer
+│   ├── positionManager.ts
+│   ├── liquidityPool.ts
+│   └── faucet.ts
+├── config/
+│   └── contracts.ts     # Network config + addresses
+└── types/
+    └── market.ts        # Trading pair types
+```
+
+## Routes
+| Path | Page | Description |
+|------|------|-------------|
+| `/` | Home | Markets grid with live prices |
+| `/trade/:pair` | Trade | Chart + trade panel + positions |
+| `/vault` | Vault | LP deposit/withdraw interface |
+| `/faucet` | Faucet | Mint test tokens (testnet) |
+
+## Contract Integration
+
+### Bindings Usage
+Services import generated TypeScript clients from `@stellars-finance/*` packages:
+```typescript
+import { Client as PositionManagerClient } from '@stellars-finance/position-manager';
+```
+
+### Transaction Flow
+1. User action triggers hook mutation
+2. Service builds `AssembledTransaction`
+3. Freighter signs transaction
+4. Transaction sent to Soroban RPC
+5. Query cache invalidated on success
+6. UI updates via refetch
+
+### Amount Conversion
+All services use 7 decimal places (Stellar standard):
+```typescript
+const DECIMALS = 7;
+toContractAmount(1.5)   // → 15_000_000n
+fromContractAmount(15_000_000n) // → 1.5
+```
+
+## State Management
+
+### Contexts (Global State)
+- **WalletContext**: `publicKey`, `isConnected`, connect/disconnect
+- **PriceContext**: Real-time prices from Binance WebSocket
+
+### TanStack Query (Server State)
+Hooks wrap contract reads/writes with caching:
+```typescript
+// Reads: cached, auto-refetch
+useUserPositions(publicKey)  // staleTime: 30s
+useTotalDeposits()
+
+// Writes: invalidate related queries on success
+useOpenPosition()  // invalidates userPositions
+useDeposit()       // invalidates pool stats
+```
+
+## Network Configuration
+Located in `src/config/contracts.ts`:
+```typescript
+NETWORK_CONFIG = {
+  testnet: {
+    rpcUrl: 'https://soroban-testnet.stellar.org',
+    networkPassphrase: 'Test SDF Network ; September 2015',
+  },
+  mainnet: {
+    rpcUrl: 'https://soroban-mainnet.stellar.org',
+    networkPassphrase: 'Public Global Stellar Network ; September 2015',
+  },
+};
+CURRENT_NETWORK = 'testnet';  // Change to switch networks
+```
+
+## Key Patterns
+
+### Hook Architecture
+```typescript
+// Query hook pattern
+export function useUserPositions(address: string) {
+  return useQuery({
+    queryKey: POSITION_MANAGER_KEYS.userPositions(address),
+    queryFn: () => getUserPositions(address),
+    staleTime: 30_000,
+    enabled: !!address,
+  });
+}
+
+// Mutation hook pattern
+export function useOpenPosition() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: openPosition,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['positions'] });
+    },
+  });
+}
+```
+
+### Error Handling
+Uses `sonner` for toast notifications:
+- `toast.success()` on transaction success
+- `toast.error()` on failure (distinguishes user rejection vs network error)
+
+## Dev Server
+```bash
+npm run dev  # Starts on port 8080
+```
 
 ---
 
