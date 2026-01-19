@@ -131,10 +131,16 @@ fn validate_oracle_price(env: &Env, price: i128, timestamp: u64) {
     let staleness_threshold = config_client.price_staleness_threshold();
     let current_time = env.ledger().timestamp();
 
-    if current_time - timestamp > staleness_threshold {
+    // Reject future timestamps (clock skew, bad data, or malicious oracle)
+    if timestamp > current_time {
+        panic!("invalid price timestamp: {} is in the future (current: {})", timestamp, current_time);
+    }
+
+    let age = current_time - timestamp;
+    if age > staleness_threshold {
         panic!(
             "stale price: age {} seconds exceeds threshold {}",
-            current_time - timestamp,
+            age,
             staleness_threshold
         );
     }
