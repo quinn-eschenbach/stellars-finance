@@ -323,6 +323,10 @@ fn remove_user_position(env: &Env, trader: &Address, position_id: u64) {
 
 const ORDER_TTL_LEDGERS: u32 = 100_000; // ~14 days, same as positions
 
+/// Maximum number of SL/TP orders that can be attached to a single position.
+/// This prevents gas exhaustion attacks where a trader creates many orders to block liquidation.
+const MAX_ORDERS_PER_POSITION: u32 = 20;
+
 /// Get an order from storage
 fn get_order_from_storage(env: &Env, order_id: u64) -> Order {
     env.storage()
@@ -2137,6 +2141,12 @@ impl PositionManager {
         // Validate execution fee
         validate_execution_fee(&env, execution_fee);
 
+        // Check maximum orders per position limit
+        let existing_orders = get_position_orders_list(&env, position_id);
+        if existing_orders.len() >= MAX_ORDERS_PER_POSITION {
+            panic!("Maximum orders per position reached");
+        }
+
         // Validate stop-loss price
         // For longs: SL triggers when price falls below trigger (must be below current)
         // For shorts: SL triggers when price rises above trigger (must be above current)
@@ -2253,6 +2263,12 @@ impl PositionManager {
 
         // Validate execution fee
         validate_execution_fee(&env, execution_fee);
+
+        // Check maximum orders per position limit
+        let existing_orders = get_position_orders_list(&env, position_id);
+        if existing_orders.len() >= MAX_ORDERS_PER_POSITION {
+            panic!("Maximum orders per position reached");
+        }
 
         // Validate take-profit price
         // For longs: TP triggers when price rises above trigger (must be above current)

@@ -2776,3 +2776,196 @@ fn test_calculate_pnl_with_borrowing_fee() {
     assert!(pnl < 0, "PnL should be negative due to borrowing fees, got: {}", pnl);
     assert_eq!(pnl, -10_000_000, "Borrowing fee should be 10_000_000, got: {}", pnl);
 }
+
+// ============================================================================
+// MAX ORDERS PER POSITION LIMIT TESTS
+// ============================================================================
+
+#[test]
+#[should_panic(expected = "Maximum orders per position reached")]
+fn test_max_orders_per_position_stop_loss() {
+    let env = Env::default();
+    let (
+        _config_id,
+        _oracle_id,
+        position_manager_id,
+        _token_address,
+        _token_client,
+        token_admin,
+        _admin,
+        trader,
+        _liquidity_pool_id,
+    ) = setup_test_environment(&env);
+
+    let position_client = PositionManagerClient::new(&env, &position_manager_id);
+
+    // Mint extra tokens for execution fees (21 orders * 1_000_000 = 21_000_000)
+    token_admin.mint(&trader, &100_000_000);
+
+    // Open a long position
+    let market_id = 0u32;
+    let collateral = 1_000_000_000u128;
+    let leverage = 10u32;
+    let position_id =
+        position_client.open_position(&trader, &market_id, &collateral, &leverage, &true);
+
+    // Create 20 stop-loss orders (the maximum allowed)
+    // Each at a slightly different trigger price to be valid
+    for i in 0..20 {
+        let trigger_price = 94_000_000i128 - (i as i128 * 100_000); // Varying prices below $0.94
+        position_client.create_stop_loss(
+            &trader,
+            &position_id,
+            &trigger_price,
+            &0i128,
+            &CLOSE_FULL,
+            &EXECUTION_FEE,
+            &0u64,
+        );
+    }
+
+    // Verify we have 20 orders attached
+    let position_orders = position_client.get_position_orders(&position_id);
+    assert_eq!(position_orders.len(), 20);
+
+    // The 21st order should panic with "Maximum orders per position reached"
+    position_client.create_stop_loss(
+        &trader,
+        &position_id,
+        &92_000_000i128,
+        &0i128,
+        &CLOSE_FULL,
+        &EXECUTION_FEE,
+        &0u64,
+    );
+}
+
+#[test]
+#[should_panic(expected = "Maximum orders per position reached")]
+fn test_max_orders_per_position_take_profit() {
+    let env = Env::default();
+    let (
+        _config_id,
+        _oracle_id,
+        position_manager_id,
+        _token_address,
+        _token_client,
+        token_admin,
+        _admin,
+        trader,
+        _liquidity_pool_id,
+    ) = setup_test_environment(&env);
+
+    let position_client = PositionManagerClient::new(&env, &position_manager_id);
+
+    // Mint extra tokens for execution fees
+    token_admin.mint(&trader, &100_000_000);
+
+    // Open a long position
+    let market_id = 0u32;
+    let collateral = 1_000_000_000u128;
+    let leverage = 10u32;
+    let position_id =
+        position_client.open_position(&trader, &market_id, &collateral, &leverage, &true);
+
+    // Create 20 take-profit orders (the maximum allowed)
+    for i in 0..20 {
+        let trigger_price = 110_000_000i128 + (i as i128 * 100_000); // Varying prices above $1.10
+        position_client.create_take_profit(
+            &trader,
+            &position_id,
+            &trigger_price,
+            &0i128,
+            &CLOSE_FULL,
+            &EXECUTION_FEE,
+            &0u64,
+        );
+    }
+
+    // Verify we have 20 orders attached
+    let position_orders = position_client.get_position_orders(&position_id);
+    assert_eq!(position_orders.len(), 20);
+
+    // The 21st order should panic with "Maximum orders per position reached"
+    position_client.create_take_profit(
+        &trader,
+        &position_id,
+        &150_000_000i128,
+        &0i128,
+        &CLOSE_FULL,
+        &EXECUTION_FEE,
+        &0u64,
+    );
+}
+
+#[test]
+#[should_panic(expected = "Maximum orders per position reached")]
+fn test_max_orders_per_position_mixed_sl_tp() {
+    let env = Env::default();
+    let (
+        _config_id,
+        _oracle_id,
+        position_manager_id,
+        _token_address,
+        _token_client,
+        token_admin,
+        _admin,
+        trader,
+        _liquidity_pool_id,
+    ) = setup_test_environment(&env);
+
+    let position_client = PositionManagerClient::new(&env, &position_manager_id);
+
+    // Mint extra tokens for execution fees
+    token_admin.mint(&trader, &100_000_000);
+
+    // Open a long position
+    let market_id = 0u32;
+    let collateral = 1_000_000_000u128;
+    let leverage = 10u32;
+    let position_id =
+        position_client.open_position(&trader, &market_id, &collateral, &leverage, &true);
+
+    // Create 10 stop-loss orders
+    for i in 0..10 {
+        let trigger_price = 94_000_000i128 - (i as i128 * 100_000);
+        position_client.create_stop_loss(
+            &trader,
+            &position_id,
+            &trigger_price,
+            &0i128,
+            &CLOSE_FULL,
+            &EXECUTION_FEE,
+            &0u64,
+        );
+    }
+
+    // Create 10 take-profit orders (total now 20)
+    for i in 0..10 {
+        let trigger_price = 110_000_000i128 + (i as i128 * 100_000);
+        position_client.create_take_profit(
+            &trader,
+            &position_id,
+            &trigger_price,
+            &0i128,
+            &CLOSE_FULL,
+            &EXECUTION_FEE,
+            &0u64,
+        );
+    }
+
+    // Verify we have 20 orders attached
+    let position_orders = position_client.get_position_orders(&position_id);
+    assert_eq!(position_orders.len(), 20);
+
+    // The 21st order (either SL or TP) should panic
+    position_client.create_stop_loss(
+        &trader,
+        &position_id,
+        &92_000_000i128,
+        &0i128,
+        &CLOSE_FULL,
+        &EXECUTION_FEE,
+        &0u64,
+    );
+}
