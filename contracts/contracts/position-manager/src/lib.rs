@@ -251,11 +251,16 @@ fn get_position(env: &Env, position_id: u64) -> Position {
         .expect("Position not found")
 }
 
-/// Store a position in persistent storage
+/// Store a position in persistent storage with TTL extension
 fn set_position(env: &Env, position_id: u64, position: &Position) {
     env.storage()
         .persistent()
         .set(&DataKey::Position(position_id), position);
+    env.storage().persistent().extend_ttl(
+        &DataKey::Position(position_id),
+        TTL_LEDGERS,
+        TTL_LEDGERS,
+    );
 }
 
 /// Delete a position from storage
@@ -294,9 +299,11 @@ fn get_user_positions(env: &Env, trader: &Address) -> soroban_sdk::Vec<u64> {
 fn add_user_position(env: &Env, trader: &Address, position_id: u64) {
     let mut user_positions = get_user_positions(env, trader);
     user_positions.push_back(position_id);
+    let key = DataKey::UserPositions(trader.clone());
+    env.storage().persistent().set(&key, &user_positions);
     env.storage()
         .persistent()
-        .set(&DataKey::UserPositions(trader.clone()), &user_positions);
+        .extend_ttl(&key, TTL_LEDGERS, TTL_LEDGERS);
 }
 
 /// Remove a position ID from a user's list of open positions
@@ -312,16 +319,18 @@ fn remove_user_position(env: &Env, trader: &Address, position_id: u64) {
         }
     }
 
+    let key = DataKey::UserPositions(trader.clone());
+    env.storage().persistent().set(&key, &new_positions);
     env.storage()
         .persistent()
-        .set(&DataKey::UserPositions(trader.clone()), &new_positions);
+        .extend_ttl(&key, TTL_LEDGERS, TTL_LEDGERS);
 }
 
 // ============================================================================
 // ORDER STORAGE HELPERS
 // ============================================================================
 
-const ORDER_TTL_LEDGERS: u32 = 100_000; // ~14 days, same as positions
+const TTL_LEDGERS: u32 = 100_000; // ~14 days for positions and orders
 
 /// Maximum number of SL/TP orders that can be attached to a single position.
 /// This prevents gas exhaustion attacks where a trader creates many orders to block liquidation.
@@ -347,8 +356,8 @@ fn set_order(env: &Env, order_id: u64, order: &Order) {
         .set(&DataKey::Order(order_id), order);
     env.storage().persistent().extend_ttl(
         &DataKey::Order(order_id),
-        ORDER_TTL_LEDGERS,
-        ORDER_TTL_LEDGERS,
+        TTL_LEDGERS,
+        TTL_LEDGERS,
     );
 }
 
@@ -386,9 +395,11 @@ fn get_user_orders_list(env: &Env, trader: &Address) -> soroban_sdk::Vec<u64> {
 fn add_user_order(env: &Env, trader: &Address, order_id: u64) {
     let mut orders = get_user_orders_list(env, trader);
     orders.push_back(order_id);
+    let key = DataKey::UserOrders(trader.clone());
+    env.storage().persistent().set(&key, &orders);
     env.storage()
         .persistent()
-        .set(&DataKey::UserOrders(trader.clone()), &orders);
+        .extend_ttl(&key, TTL_LEDGERS, TTL_LEDGERS);
 }
 
 /// Remove an order ID from a user's list of orders
@@ -401,9 +412,11 @@ fn remove_user_order(env: &Env, trader: &Address, order_id: u64) {
             new_orders.push_back(id);
         }
     }
+    let key = DataKey::UserOrders(trader.clone());
+    env.storage().persistent().set(&key, &new_orders);
     env.storage()
         .persistent()
-        .set(&DataKey::UserOrders(trader.clone()), &new_orders);
+        .extend_ttl(&key, TTL_LEDGERS, TTL_LEDGERS);
 }
 
 /// Get all order IDs attached to a position (SL/TP orders)
@@ -418,9 +431,11 @@ fn get_position_orders_list(env: &Env, position_id: u64) -> soroban_sdk::Vec<u64
 fn add_position_order(env: &Env, position_id: u64, order_id: u64) {
     let mut orders = get_position_orders_list(env, position_id);
     orders.push_back(order_id);
+    let key = DataKey::PositionOrders(position_id);
+    env.storage().persistent().set(&key, &orders);
     env.storage()
         .persistent()
-        .set(&DataKey::PositionOrders(position_id), &orders);
+        .extend_ttl(&key, TTL_LEDGERS, TTL_LEDGERS);
 }
 
 /// Remove an order ID from a position's attached orders
@@ -433,9 +448,11 @@ fn remove_position_order(env: &Env, position_id: u64, order_id: u64) {
             new_orders.push_back(id);
         }
     }
+    let key = DataKey::PositionOrders(position_id);
+    env.storage().persistent().set(&key, &new_orders);
     env.storage()
         .persistent()
-        .set(&DataKey::PositionOrders(position_id), &new_orders);
+        .extend_ttl(&key, TTL_LEDGERS, TTL_LEDGERS);
 }
 
 /// Clear all orders attached to a position
@@ -457,9 +474,11 @@ fn get_market_orders_list(env: &Env, market_id: u32) -> soroban_sdk::Vec<u64> {
 fn add_market_order(env: &Env, market_id: u32, order_id: u64) {
     let mut orders = get_market_orders_list(env, market_id);
     orders.push_back(order_id);
+    let key = DataKey::ActiveOrdersByMarket(market_id);
+    env.storage().persistent().set(&key, &orders);
     env.storage()
         .persistent()
-        .set(&DataKey::ActiveOrdersByMarket(market_id), &orders);
+        .extend_ttl(&key, TTL_LEDGERS, TTL_LEDGERS);
 }
 
 /// Remove an order ID from a market's active orders
@@ -472,9 +491,11 @@ fn remove_market_order(env: &Env, market_id: u32, order_id: u64) {
             new_orders.push_back(id);
         }
     }
+    let key = DataKey::ActiveOrdersByMarket(market_id);
+    env.storage().persistent().set(&key, &new_orders);
     env.storage()
         .persistent()
-        .set(&DataKey::ActiveOrdersByMarket(market_id), &new_orders);
+        .extend_ttl(&key, TTL_LEDGERS, TTL_LEDGERS);
 }
 
 /// Get minimum execution fee
