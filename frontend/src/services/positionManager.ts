@@ -5,10 +5,12 @@
  * Handles opening, closing, and querying perpetual positions.
  */
 
-import { Client as PositionManagerClient } from '@stellars-finance/position-manager';
+import { Client as PositionManagerClient, Order, OrderType } from '@stellars-finance/position-manager';
 import { Client as TokenClient } from '@stellars-finance/faucet-token';
 import { CONTRACT_ADDRESSES, getRpcUrl, getNetworkPassphrase } from '../config/contracts';
-import type { i128, u32, u64 } from '@stellar/stellar-sdk/contract';
+import type { i128, u32, u64, u128 } from '@stellar/stellar-sdk/contract';
+
+export type { Order, OrderType };
 
 // Stellar typically uses 7 decimal places for tokens
 const DECIMALS = 7;
@@ -277,4 +279,204 @@ export async function getUserTokenBalance(userAddress: string): Promise<bigint> 
   const tx = await client.balance({ addr: userAddress });
   const result = await tx.simulate();
   return result.result;
+}
+
+// ============================================================================
+// Order Functions
+// ============================================================================
+
+/**
+ * Get all order IDs for a user
+ * @param userAddress - User's Stellar address
+ * @returns Array of order IDs
+ */
+export async function getUserOrderIds(userAddress: string): Promise<bigint[]> {
+  const client = getPositionManagerClient();
+  const tx = await client.get_user_orders({ trader: userAddress });
+  const result = await tx.simulate();
+  return result.result;
+}
+
+/**
+ * Get order details by ID
+ * @param orderId - Order ID
+ * @returns Order data
+ */
+export async function getOrder(orderId: bigint): Promise<Order> {
+  const client = getPositionManagerClient();
+  const tx = await client.get_order({ order_id: orderId as u64 });
+  const result = await tx.simulate();
+  return result.result;
+}
+
+/**
+ * Get all orders for a user (with full details)
+ * @param userAddress - User's Stellar address
+ * @returns Array of orders
+ */
+export async function getUserOrders(userAddress: string): Promise<Order[]> {
+  const orderIds = await getUserOrderIds(userAddress);
+
+  const orders = await Promise.all(
+    orderIds.map((id) => getOrder(id))
+  );
+
+  return orders;
+}
+
+/**
+ * Get all orders attached to a position (SL/TP)
+ * @param positionId - Position ID
+ * @returns Array of order IDs
+ */
+export async function getPositionOrderIds(positionId: bigint): Promise<bigint[]> {
+  const client = getPositionManagerClient();
+  const tx = await client.get_position_orders({ position_id: positionId as u64 });
+  const result = await tx.simulate();
+  return result.result;
+}
+
+/**
+ * Get all orders attached to a position (with full details)
+ * @param positionId - Position ID
+ * @returns Array of orders
+ */
+export async function getPositionOrders(positionId: bigint): Promise<Order[]> {
+  const orderIds = await getPositionOrderIds(positionId);
+
+  const orders = await Promise.all(
+    orderIds.map((id) => getOrder(id))
+  );
+
+  return orders;
+}
+
+/**
+ * Get minimum execution fee required for orders
+ * @returns Minimum fee in contract units
+ */
+export async function getMinExecutionFee(): Promise<bigint> {
+  const client = getPositionManagerClient();
+  const tx = await client.min_execution_fee();
+  const result = await tx.simulate();
+  return result.result;
+}
+
+/**
+ * Create a limit order transaction
+ * @param userAddress - User's Stellar address
+ * @param marketId - Market identifier (0=XLM, 1=BTC, 2=ETH)
+ * @param triggerPrice - Price at which to execute (in contract units)
+ * @param acceptablePrice - Max slippage from trigger (0 = any price)
+ * @param collateral - Collateral for the new position (in contract units)
+ * @param leverage - Leverage for the new position
+ * @param isLong - True for long, false for short
+ * @param executionFee - Fee to pay keeper (in contract units)
+ * @param expiration - Timestamp when order expires (0 = no expiry)
+ * @returns AssembledTransaction ready for signing
+ */
+export async function createLimitOrderTransaction(
+  userAddress: string,
+  marketId: MarketId,
+  triggerPrice: bigint,
+  acceptablePrice: bigint,
+  collateral: bigint,
+  leverage: number,
+  isLong: boolean,
+  executionFee: bigint,
+  expiration: bigint
+) {
+  const client = getPositionManagerClient(userAddress);
+  return await client.create_limit_order({
+    trader: userAddress,
+    market_id: marketId as u32,
+    trigger_price: triggerPrice as i128,
+    acceptable_price: acceptablePrice as i128,
+    collateral: collateral as u128,
+    leverage: leverage as u32,
+    is_long: isLong,
+    execution_fee: executionFee as u128,
+    expiration: expiration as u64,
+  });
+}
+
+/**
+ * Create a stop-loss order transaction
+ * @param userAddress - User's Stellar address
+ * @param positionId - Position to protect
+ * @param triggerPrice - Price at which to close (in contract units)
+ * @param acceptablePrice - Min acceptable price for closure (0 = any)
+ * @param closePercentage - Percentage to close (10000 = 100%)
+ * @param executionFee - Fee to pay keeper (in contract units)
+ * @param expiration - Order expiration (0 = no expiry)
+ * @returns AssembledTransaction ready for signing
+ */
+export async function createStopLossTransaction(
+  userAddress: string,
+  positionId: bigint,
+  triggerPrice: bigint,
+  acceptablePrice: bigint,
+  closePercentage: number,
+  executionFee: bigint,
+  expiration: bigint
+) {
+  const client = getPositionManagerClient(userAddress);
+  return await client.create_stop_loss({
+    trader: userAddress,
+    position_id: positionId as u64,
+    trigger_price: triggerPrice as i128,
+    acceptable_price: acceptablePrice as i128,
+    close_percentage: closePercentage as u32,
+    execution_fee: executionFee as u128,
+    expiration: expiration as u64,
+  });
+}
+
+/**
+ * Create a take-profit order transaction
+ * @param userAddress - User's Stellar address
+ * @param positionId - Position to take profit from
+ * @param triggerPrice - Price at which to close (in contract units)
+ * @param acceptablePrice - Min acceptable price for closure (0 = any)
+ * @param closePercentage - Percentage to close (10000 = 100%)
+ * @param executionFee - Fee to pay keeper (in contract units)
+ * @param expiration - Order expiration (0 = no expiry)
+ * @returns AssembledTransaction ready for signing
+ */
+export async function createTakeProfitTransaction(
+  userAddress: string,
+  positionId: bigint,
+  triggerPrice: bigint,
+  acceptablePrice: bigint,
+  closePercentage: number,
+  executionFee: bigint,
+  expiration: bigint
+) {
+  const client = getPositionManagerClient(userAddress);
+  return await client.create_take_profit({
+    trader: userAddress,
+    position_id: positionId as u64,
+    trigger_price: triggerPrice as i128,
+    acceptable_price: acceptablePrice as i128,
+    close_percentage: closePercentage as u32,
+    execution_fee: executionFee as u128,
+    expiration: expiration as u64,
+  });
+}
+
+/**
+ * Create a cancel order transaction
+ * @param userAddress - User's Stellar address
+ * @param orderId - Order to cancel
+ * @returns AssembledTransaction ready for signing
+ */
+export async function createCancelOrderTransaction(
+  userAddress: string,
+  orderId: bigint
+) {
+  const client = getPositionManagerClient(userAddress);
+  return await client.cancel_order({
+    trader: userAddress,
+    order_id: orderId as u64,
+  });
 }
