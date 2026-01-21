@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::{testutils::Address as _, Env};
+use soroban_sdk::{symbol_short, testutils::Address as _, Env};
 
 #[test]
 fn test_initialize() {
@@ -47,7 +47,8 @@ fn test_create_market_success() {
     let client = MarketManagerClient::new(&env, &contract_id);
 
     client.initialize(&config_manager, &admin);
-    client.create_market(&admin, &0u32, &1_000_000_000_000u128, &10000i128);
+    let ticker = symbol_short!("XLM");
+    client.create_market(&admin, &0u32, &ticker, &1_000_000_000_000u128, &10000i128);
 
     let (long_oi, short_oi) = client.get_open_interest(&0u32);
     assert_eq!(long_oi, 0);
@@ -55,6 +56,10 @@ fn test_create_market_success() {
 
     let funding_rate = client.get_funding_rate(&0u32);
     assert_eq!(funding_rate, 0);
+
+    // Verify ticker is stored correctly
+    let stored_ticker = client.get_market_ticker(&0u32);
+    assert_eq!(stored_ticker, ticker);
 }
 
 #[test]
@@ -70,8 +75,9 @@ fn test_create_duplicate_market_fails() {
     let client = MarketManagerClient::new(&env, &contract_id);
 
     client.initialize(&config_manager, &admin);
-    client.create_market(&admin, &0u32, &1_000_000_000_000u128, &10000i128);
-    client.create_market(&admin, &0u32, &1_000_000_000_000u128, &10000i128); // Duplicate
+    let ticker = symbol_short!("XLM");
+    client.create_market(&admin, &0u32, &ticker, &1_000_000_000_000u128, &10000i128);
+    client.create_market(&admin, &0u32, &ticker, &1_000_000_000_000u128, &10000i128); // Duplicate
 }
 
 #[test]
@@ -106,7 +112,8 @@ fn test_update_open_interest_increase() {
 
     client.initialize(&config_manager, &admin);
     client.set_position_manager(&admin, &position_manager);
-    client.create_market(&admin, &0u32, &1_000_000_000_000u128, &10000i128);
+    let ticker = symbol_short!("XLM");
+    client.create_market(&admin, &0u32, &ticker, &1_000_000_000_000u128, &10000i128);
 
     // Increase long OI
     client.update_open_interest(&position_manager, &0u32, &true, &1_000_000_000i128);
@@ -130,7 +137,8 @@ fn test_update_open_interest_decrease() {
 
     client.initialize(&config_manager, &admin);
     client.set_position_manager(&admin, &position_manager);
-    client.create_market(&admin, &0u32, &1_000_000_000_000u128, &10000i128);
+    let ticker = symbol_short!("XLM");
+    client.create_market(&admin, &0u32, &ticker, &1_000_000_000_000u128, &10000i128);
 
     // Increase then decrease
     client.update_open_interest(&position_manager, &0u32, &true, &1_000_000_000i128);
@@ -156,7 +164,8 @@ fn test_update_open_interest_exceeds_cap() {
 
     client.initialize(&config_manager, &admin);
     client.set_position_manager(&admin, &position_manager);
-    client.create_market(&admin, &0u32, &1_000_000_000u128, &10000i128); // Max OI = 1B
+    let ticker = symbol_short!("XLM");
+    client.create_market(&admin, &0u32, &ticker, &1_000_000_000u128, &10000i128); // Max OI = 1B
 
     // Try to add 1.1B (exceeds cap)
     client.update_open_interest(&position_manager, &0u32, &true, &1_100_000_000i128);
@@ -174,7 +183,8 @@ fn test_pause_unpause_market() {
     let client = MarketManagerClient::new(&env, &contract_id);
 
     client.initialize(&config_manager, &admin);
-    client.create_market(&admin, &0u32, &1_000_000_000_000u128, &10000i128);
+    let ticker = symbol_short!("XLM");
+    client.create_market(&admin, &0u32, &ticker, &1_000_000_000_000u128, &10000i128);
 
     assert!(!client.is_market_paused(&0u32));
 
@@ -197,7 +207,8 @@ fn test_can_open_position_when_paused() {
     let client = MarketManagerClient::new(&env, &contract_id);
 
     client.initialize(&config_manager, &admin);
-    client.create_market(&admin, &0u32, &1_000_000_000_000u128, &10000i128);
+    let ticker = symbol_short!("XLM");
+    client.create_market(&admin, &0u32, &ticker, &1_000_000_000_000u128, &10000i128);
 
     assert!(client.can_open_position(&0u32, &true, &1_000_000u128));
 
@@ -217,7 +228,8 @@ fn test_can_open_position_exceeds_oi() {
     let client = MarketManagerClient::new(&env, &contract_id);
 
     client.initialize(&config_manager, &admin);
-    client.create_market(&admin, &0u32, &1_000_000_000u128, &10000i128); // Max OI = 1B
+    let ticker = symbol_short!("XLM");
+    client.create_market(&admin, &0u32, &ticker, &1_000_000_000u128, &10000i128); // Max OI = 1B
 
     assert!(!client.can_open_position(&0u32, &true, &1_100_000_000u128)); // Exceeds cap
     assert!(client.can_open_position(&0u32, &true, &900_000_000u128)); // Within cap
@@ -235,7 +247,8 @@ fn test_get_cumulative_funding() {
     let client = MarketManagerClient::new(&env, &contract_id);
 
     client.initialize(&config_manager, &admin);
-    client.create_market(&admin, &0u32, &1_000_000_000_000u128, &10000i128);
+    let ticker = symbol_short!("XLM");
+    client.create_market(&admin, &0u32, &ticker, &1_000_000_000_000u128, &10000i128);
 
     // Initially should be 0
     let cumulative_long = client.get_cumulative_funding(&0u32, &true);

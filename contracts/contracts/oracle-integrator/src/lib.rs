@@ -6,10 +6,9 @@
 //! reliable price data for position entry/exit, liquidation, and funding calculations.
 //!
 //! ## Key Features
-//! - **Multi-Oracle Aggregation**: Fetches prices from DIA and Reflector oracles (production)
+//! - **Reflector Oracle Integration**: Fetches prices from Reflector (SEP-40 compliant)
 //! - **Test Mode**: Simulated prices with configurable oscillation for testing
-//! - **Price Validation**: Staleness checks, bounds validation, and cross-oracle deviation checks
-//! - **Median Calculation**: Returns median of oracle prices to resist manipulation
+//! - **Price Validation**: Staleness checks and bounds validation
 //!
 //! ## Supported Markets
 //! - Market 0: XLM/USD
@@ -20,20 +19,29 @@
 //! When enabled, returns simulated prices that oscillate ±10% per hour around a base price.
 //! Use `set_fixed_price_mode(true)` to disable oscillation for deterministic testing.
 //!
-//! ## Production Mode (Not Yet Implemented)
-//! Will fetch prices from DIA and Reflector oracles, validate each price, check
-//! cross-oracle deviation (max 5%), and return the median.
+//! ## Production Mode
+//! Fetches prices from Reflector oracle (SEP-40 compliant), validates staleness and bounds,
+//! and converts to protocol's 1e7 decimal format.
 //!
 //! ## Usage
 //! - PositionManager calls `get_price()` for entry/exit prices
 //! - Admin configures test mode via `set_test_mode()`
 
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Map, String};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Map};
 
 #[cfg(not(test))]
 mod config_manager {
     soroban_sdk::contractimport!(file = "../../target/wasm32v1-none/release/config_manager.wasm");
 }
+
+#[cfg(not(test))]
+mod market_manager {
+    soroban_sdk::contractimport!(file = "../../target/wasm32v1-none/release/market_manager.wasm");
+}
+
+mod reflector;
+#[cfg(not(test))]
+use reflector::{Asset, ReflectorClient};
 
 #[contracttype]
 pub enum DataKey {
@@ -51,25 +59,19 @@ fn get_config_manager(env: &Env) -> Address {
         .expect("ConfigManager not initialized")
 }
 
-/// Get asset symbols for oracle queries
-/// Returns (dia_symbol, reflector_symbol)
-fn get_asset_symbol(env: &Env, market_id: u32) -> (String, String) {
-    match market_id {
-        0 => (
-            String::from_str(env, "XLM/USD"),
-            String::from_str(env, "XLM"),
-        ),
-        1 => (
-            String::from_str(env, "BTC/USD"),
-            String::from_str(env, "Bitcoin"),
-        ),
-        2 => (
-            String::from_str(env, "ETH/USD"),
-            String::from_str(env, "Ethereum"),
-        ),
-        _ => panic!("unsupported market_id: {}", market_id),
-    }
+/// Get the Reflector Asset for a given market_id by fetching ticker from MarketManager
+#[cfg(not(test))]
+fn get_reflector_asset(env: &Env, market_id: u32) -> Asset {
+    let config_manager = get_config_manager(env);
+    let config_client = config_manager::Client::new(env, &config_manager);
+    let market_manager_addr = config_client.market_manager();
+    let market_client = market_manager::Client::new(env, &market_manager_addr);
+    let ticker = market_client.get_market_ticker(&market_id);
+    Asset::Other(ticker)
 }
+
+/// Protocol price decimals (1e7 scaling)
+const PROTOCOL_DECIMALS: u32 = 7;
 
 /// Check if test mode is enabled
 fn is_test_mode(env: &Env) -> bool {
@@ -153,30 +155,6 @@ fn validate_oracle_price(env: &Env, price: i128, timestamp: u64) {
     // Sanity check: price should be reasonable (< $1 trillion)
     if price > 1_000_000_000_000_000_000 {
         panic!("invalid price: exceeds maximum bound");
-    }
-}
-
-/// Validate price deviation between oracles
-#[cfg(not(test))]
-fn validate_price_deviation(env: &Env, price1: i128, price2: i128) {
-    let config_manager = get_config_manager(env);
-    let config_client = config_manager::Client::new(env, &config_manager);
-    let max_deviation_bps = config_client.max_price_deviation_bps();
-
-    // Calculate percentage deviation
-    let diff = if price1 > price2 {
-        price1 - price2
-    } else {
-        price2 - price1
-    };
-    let avg = (price1 + price2) / 2;
-    let deviation_bps = (diff * 10000) / avg;
-
-    if deviation_bps > max_deviation_bps {
-        panic!(
-            "excessive price deviation: {}bps exceeds threshold {}bps - possible manipulation",
-            deviation_bps, max_deviation_bps
-        );
     }
 }
 
@@ -265,7 +243,7 @@ impl OracleIntegrator {
             .set(&DataKey::FixedPriceMode, &enabled);
     }
 
-    /// Get the current price for a specific asset from all oracle sources.
+    /// Get the current price for a specific asset from Reflector oracle.
     ///
     /// # Arguments
     ///
@@ -273,12 +251,12 @@ impl OracleIntegrator {
     ///
     /// # Returns
     ///
-    /// The aggregated (median) price
+    /// The price in protocol format (1e7 decimals)
     ///
     /// # Implementation
     ///
     /// In test mode: Returns time-based simulated price
-    /// In production mode: Fetches from DIA and Reflector, validates, returns median
+    /// In production mode: Fetches from Reflector oracle, validates, and returns
     pub fn get_price(env: Env, market_id: u32) -> i128 {
         // Test mode bypass
         if is_test_mode(&env) {
@@ -286,24 +264,15 @@ impl OracleIntegrator {
             return price;
         }
 
-        // Production mode: fetch from both oracles
+        // Production mode: fetch from Reflector oracle
         #[cfg(not(test))]
         {
-            let (dia_price, dia_timestamp) = Self::fetch_dia_price(env.clone(), market_id);
-            let (reflector_price, reflector_timestamp) =
-                Self::fetch_reflector_price(env.clone(), market_id);
+            let (price, timestamp) = Self::fetch_reflector_price(env.clone(), market_id);
 
-            // Validate each price
-            validate_oracle_price(&env, dia_price, dia_timestamp);
-            validate_oracle_price(&env, reflector_price, reflector_timestamp);
+            // Validate the price
+            validate_oracle_price(&env, price, timestamp);
 
-            // Check deviation between oracles
-            validate_price_deviation(&env, dia_price, reflector_price);
-
-            // Calculate median (average of 2 prices)
-            let median_price = (dia_price + reflector_price) / 2;
-
-            median_price
+            price
         }
 
         #[cfg(test)]
@@ -331,68 +300,52 @@ impl OracleIntegrator {
         (0, 0, 0)
     }
 
-    /// Fetch price from DIA oracle.
+    /// Fetch price from Reflector oracle (SEP-40 compliant).
     ///
     /// # Arguments
     ///
-    /// * `market_id` - The market identifier
+    /// * `market_id` - The market identifier (0=XLM, 1=BTC, 2=ETH)
     ///
     /// # Returns
     ///
-    /// Tuple of (price, timestamp)
-    pub fn fetch_dia_price(env: Env, market_id: u32) -> (i128, u64) {
-        #[cfg(not(test))]
-        {
-            let config_manager = get_config_manager(&env);
-            let config_client = config_manager::Client::new(&env, &config_manager);
-            let _dia_address = config_client.dia_oracle();
-
-            let (dia_symbol, _) = get_asset_symbol(&env, market_id);
-
-            // TODO: Replace with actual DIA oracle contract call
-            // This requires DIA oracle WASM interface
-            // For now, panic with clear error message
-            panic!(
-                "DIA oracle integration not yet implemented - requires DIA contract interface for symbol: {:?}",
-                dia_symbol
-            );
-        }
-
-        #[cfg(test)]
-        {
-            // Test stub - should not be called in test mode
-            panic!(
-                "fetch_dia_price should not be called in test builds - market_id: {}",
-                market_id
-            );
-        }
-    }
-
-    /// Fetch price from Reflector oracle.
-    ///
-    /// # Arguments
-    ///
-    /// * `market_id` - The market identifier
-    ///
-    /// # Returns
-    ///
-    /// Tuple of (price, timestamp)
+    /// Tuple of (price, timestamp) in protocol format (1e7 decimals)
     pub fn fetch_reflector_price(env: Env, market_id: u32) -> (i128, u64) {
         #[cfg(not(test))]
         {
+            // Get Reflector oracle address from ConfigManager
             let config_manager = get_config_manager(&env);
             let config_client = config_manager::Client::new(&env, &config_manager);
-            let _reflector_address = config_client.reflector_oracle();
+            let reflector_address = config_client.reflector_oracle();
 
-            let (_, reflector_symbol) = get_asset_symbol(&env, market_id);
+            // Create Reflector client
+            let reflector_client = ReflectorClient::new(&env, &reflector_address);
 
-            // TODO: Use sep-40-oracle crate for Reflector integration
-            // This requires proper sep-40-oracle client setup
-            // For now, panic with clear error message
-            panic!(
-                "Reflector oracle integration not yet implemented - requires sep-40-oracle setup for symbol: {:?}",
-                reflector_symbol
-            );
+            // Get the asset for this market
+            let asset = get_reflector_asset(&env, market_id);
+
+            // Fetch the latest price
+            let price_data = reflector_client
+                .lastprice(&asset)
+                .expect("price not available from Reflector oracle");
+
+            // Get oracle decimals for conversion
+            let oracle_decimals = reflector_client.decimals();
+
+            // Convert to protocol decimals (1e7)
+            let converted_price = if oracle_decimals > PROTOCOL_DECIMALS {
+                // Oracle has more decimals, divide
+                let divisor = 10i128.pow(oracle_decimals - PROTOCOL_DECIMALS);
+                price_data.price / divisor
+            } else if oracle_decimals < PROTOCOL_DECIMALS {
+                // Oracle has fewer decimals, multiply
+                let multiplier = 10i128.pow(PROTOCOL_DECIMALS - oracle_decimals);
+                price_data.price * multiplier
+            } else {
+                // Same decimals, no conversion needed
+                price_data.price
+            };
+
+            (converted_price, price_data.timestamp)
         }
 
         #[cfg(test)]

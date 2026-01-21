@@ -30,7 +30,7 @@
 //! - PositionManager calls `update_open_interest()` when positions open/close
 
 use soroban_sdk::{
-    contract, contractevent, contractimpl, contracttype, symbol_short, Address, Env,
+    contract, contractevent, contractimpl, contracttype, symbol_short, Address, Env, Symbol,
 };
 
 mod config_manager {
@@ -43,6 +43,7 @@ mod config_manager {
 #[derive(Clone, Debug)]
 pub struct Market {
     pub market_id: u32,
+    pub ticker: Symbol, // Oracle ticker symbol (e.g., "XLM", "BTC", "ETH")
     pub max_open_interest: u128,
     pub long_open_interest: u128,
     pub short_open_interest: u128,
@@ -182,12 +183,14 @@ impl MarketManager {
     ///
     /// * `admin` - Address of the admin
     /// * `market_id` - Unique identifier for the market (e.g., 0 = XLM-PERP)
+    /// * `ticker` - Oracle ticker symbol (e.g., "XLM", "BTC", "ETH")
     /// * `max_open_interest` - Maximum total open interest allowed for this market
     /// * `max_funding_rate` - Maximum funding rate per hour (in basis points)
     pub fn create_market(
         env: Env,
         admin: Address,
         market_id: u32,
+        ticker: Symbol,
         max_open_interest: u128,
         max_funding_rate: i128,
     ) {
@@ -201,6 +204,7 @@ impl MarketManager {
         // Create market with defaults
         let market = Market {
             market_id,
+            ticker,
             max_open_interest,
             long_open_interest: 0,
             short_open_interest: 0,
@@ -469,6 +473,20 @@ impl MarketManager {
     pub fn get_open_interest(env: Env, market_id: u32) -> (u128, u128) {
         let market = get_market(&env, market_id);
         (market.long_open_interest, market.short_open_interest)
+    }
+
+    /// Get the ticker symbol for a market.
+    ///
+    /// # Arguments
+    ///
+    /// * `market_id` - The market identifier
+    ///
+    /// # Returns
+    ///
+    /// The ticker symbol (e.g., "XLM", "BTC", "ETH")
+    pub fn get_market_ticker(env: Env, market_id: u32) -> Symbol {
+        let market = get_market(&env, market_id);
+        market.ticker
     }
 
     /// Pause a market to prevent new positions from being opened.
