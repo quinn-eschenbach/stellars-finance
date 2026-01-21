@@ -21,7 +21,13 @@
     "deploy:testnet": "tsx scripts/deploy.ts --network testnet",
     "deploy:mainnet": "tsx scripts/deploy.ts --network mainnet",
     "initialize:testnet": "tsx scripts/initialize.ts --network testnet",
-    "initialize:mainnet": "tsx scripts/initialize.ts --network mainnet"
+    "initialize:mainnet": "tsx scripts/initialize.ts --network mainnet",
+    "oracle:production:testnet": "tsx scripts/enable-production-oracle.ts --network testnet",
+    "oracle:production:mainnet": "tsx scripts/enable-production-oracle.ts --network mainnet",
+    "oracle:test:testnet": "tsx scripts/enable-test-oracle.ts --network testnet",
+    "oracle:test:mainnet": "tsx scripts/enable-test-oracle.ts --network mainnet",
+    "oracle:update:testnet": "tsx scripts/update-reflector-oracle.ts --network testnet",
+    "oracle:update:mainnet": "tsx scripts/update-reflector-oracle.ts --network mainnet"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

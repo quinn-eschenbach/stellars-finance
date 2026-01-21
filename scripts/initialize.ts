@@ -322,7 +322,7 @@ async function main() {
     console.log('7️⃣  Configuring Reflector Oracle...');
     // Reflector testnet oracle address - see https://reflector.network/docs
     // Note: Testnet addresses may change after network resets, verify at reflector.network
-    const REFLECTOR_TESTNET_ADDRESS = 'CAVLP5DH2GJPZMVO7IJY4CVOD5MWEFTJFVPD2YY2FQXOQHRGHK4D6HLP';
+    const REFLECTOR_TESTNET_ADDRESS = 'CCY0ZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63';
 
     const setReflectorTx = await configManagerClient.set_reflector_oracle({
       admin: publicKey,
@@ -408,6 +408,23 @@ async function main() {
       }
     });
     console.log('   ✓ Fixed price mode enabled (no oscillation)\n');
+
+    // 10. Set staleness threshold to 300 seconds (to match Reflector's 5-minute updates)
+    console.log('🔟 Configuring price staleness threshold...');
+    const setTimeParamsTx = await configManagerClient.set_time_params({
+      admin: publicKey,
+      funding_interval: BigInt(60),      // 60 seconds
+      staleness_threshold: BigInt(300),  // 300 seconds (5 minutes) for Reflector
+    });
+
+    await setTimeParamsTx.signAndSend({
+      signTransaction: async (xdr: string) => {
+        const tx = TransactionBuilder.fromXDR(xdr, networkConfig.networkPassphrase);
+        tx.sign(sourceKeypair);
+        return { signedTxXdr: tx.toXDR() };
+      }
+    });
+    console.log('   ✓ Staleness threshold set to 300 seconds (matches Reflector 5-min updates)\n');
 
     console.log('\n✅ All contracts initialized successfully!\n');
     console.log('Contract addresses:');
