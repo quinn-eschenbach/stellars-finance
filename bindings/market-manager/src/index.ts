@@ -46,6 +46,7 @@ export interface Market {
   max_funding_rate: i128;
   max_open_interest: u128;
   short_open_interest: u128;
+  ticker: string;
 }
 
 export type DataKey = {tag: "ConfigManager", values: void} | {tag: "Admin", values: void} | {tag: "Market", values: readonly [u32]} | {tag: "MarketCount", values: void} | {tag: "AuthorizedPositionManager", values: void};
@@ -114,10 +115,11 @@ export interface Client {
    * 
    * * `admin` - Address of the admin
    * * `market_id` - Unique identifier for the market (e.g., 0 = XLM-PERP)
+   * * `ticker` - Oracle ticker symbol (e.g., "XLM", "BTC", "ETH")
    * * `max_open_interest` - Maximum total open interest allowed for this market
    * * `max_funding_rate` - Maximum funding rate per hour (in basis points)
    */
-  create_market: ({admin, market_id, max_open_interest, max_funding_rate}: {admin: string, market_id: u32, max_open_interest: u128, max_funding_rate: i128}, options?: {
+  create_market: ({admin, market_id, ticker, max_open_interest, max_funding_rate}: {admin: string, market_id: u32, ticker: string, max_open_interest: u128, max_funding_rate: i128}, options?: {
     /**
      * The fee to pay for the transaction. Default: BASE_FEE
      */
@@ -248,6 +250,35 @@ export interface Client {
      */
     simulate?: boolean;
   }) => Promise<AssembledTransaction<boolean>>
+
+  /**
+   * Construct and simulate a get_market_ticker transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Get the ticker symbol for a market.
+   * 
+   * # Arguments
+   * 
+   * * `market_id` - The market identifier
+   * 
+   * # Returns
+   * 
+   * The ticker symbol (e.g., "XLM", "BTC", "ETH")
+   */
+  get_market_ticker: ({market_id}: {market_id: u32}, options?: {
+    /**
+     * The fee to pay for the transaction. Default: BASE_FEE
+     */
+    fee?: number;
+
+    /**
+     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
+     */
+    timeoutInSeconds?: number;
+
+    /**
+     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
+     */
+    simulate?: boolean;
+  }) => Promise<AssembledTransaction<string>>
 
   /**
    * Construct and simulate a get_open_interest transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
@@ -410,17 +441,18 @@ export class Client extends ContractClient {
   }
   constructor(public readonly options: ContractClientOptions) {
     super(
-      new ContractSpec([ "AAAAAQAAAAAAAAAAAAAABk1hcmtldAAAAAAACwAAAAAAAAARYmFzZV9mdW5kaW5nX3JhdGUAAAAAAAALAAAAAAAAABdjdW11bGF0aXZlX2Z1bmRpbmdfbG9uZwAAAAALAAAAAAAAABhjdW11bGF0aXZlX2Z1bmRpbmdfc2hvcnQAAAALAAAAAAAAAAxmdW5kaW5nX3JhdGUAAAALAAAAAAAAAAlpc19wYXVzZWQAAAAAAAABAAAAAAAAABNsYXN0X2Z1bmRpbmdfdXBkYXRlAAAAAAYAAAAAAAAAEmxvbmdfb3Blbl9pbnRlcmVzdAAAAAAACgAAAAAAAAAJbWFya2V0X2lkAAAAAAAABAAAAAAAAAAQbWF4X2Z1bmRpbmdfcmF0ZQAAAAsAAAAAAAAAEW1heF9vcGVuX2ludGVyZXN0AAAAAAAACgAAAAAAAAATc2hvcnRfb3Blbl9pbnRlcmVzdAAAAAAK",
+      new ContractSpec([ "AAAAAQAAAAAAAAAAAAAABk1hcmtldAAAAAAADAAAAAAAAAARYmFzZV9mdW5kaW5nX3JhdGUAAAAAAAALAAAAAAAAABdjdW11bGF0aXZlX2Z1bmRpbmdfbG9uZwAAAAALAAAAAAAAABhjdW11bGF0aXZlX2Z1bmRpbmdfc2hvcnQAAAALAAAAAAAAAAxmdW5kaW5nX3JhdGUAAAALAAAAAAAAAAlpc19wYXVzZWQAAAAAAAABAAAAAAAAABNsYXN0X2Z1bmRpbmdfdXBkYXRlAAAAAAYAAAAAAAAAEmxvbmdfb3Blbl9pbnRlcmVzdAAAAAAACgAAAAAAAAAJbWFya2V0X2lkAAAAAAAABAAAAAAAAAAQbWF4X2Z1bmRpbmdfcmF0ZQAAAAsAAAAAAAAAEW1heF9vcGVuX2ludGVyZXN0AAAAAAAACgAAAAAAAAATc2hvcnRfb3Blbl9pbnRlcmVzdAAAAAAKAAAAAAAAAAZ0aWNrZXIAAAAAABE=",
         "AAAAAgAAAAAAAAAAAAAAB0RhdGFLZXkAAAAABQAAAAAAAAAAAAAADUNvbmZpZ01hbmFnZXIAAAAAAAAAAAAAAAAAAAVBZG1pbgAAAAAAAAEAAAAAAAAABk1hcmtldAAAAAAAAQAAAAQAAAAAAAAAAAAAAAtNYXJrZXRDb3VudAAAAAAAAAAAAAAAABlBdXRob3JpemVkUG9zaXRpb25NYW5hZ2VyAAAA",
         "AAAABQAAAAAAAAAAAAAADk9JVXBkYXRlZEV2ZW50AAAAAAABAAAAEG9pX3VwZGF0ZWRfZXZlbnQAAAADAAAAAAAAAAltYXJrZXRfaWQAAAAAAAAEAAAAAAAAAAAAAAAHbG9uZ19vaQAAAAAKAAAAAAAAAAAAAAAIc2hvcnRfb2kAAAAKAAAAAAAAAAI=",
         "AAAAAAAAAJBJbml0aWFsaXplIHRoZSBNYXJrZXRNYW5hZ2VyIGNvbnRyYWN0LgoKIyBBcmd1bWVudHMKCiogYGNvbmZpZ19tYW5hZ2VyYCAtIEFkZHJlc3Mgb2YgdGhlIENvbmZpZ01hbmFnZXIgY29udHJhY3QKKiBgYWRtaW5gIC0gQWRkcmVzcyBvZiB0aGUgYWRtaW4AAAAKaW5pdGlhbGl6ZQAAAAAAAgAAAAAAAAAOY29uZmlnX21hbmFnZXIAAAAAABMAAAAAAAAABWFkbWluAAAAAAAAEwAAAAA=",
         "AAAAAAAAAI9QYXVzZSBhIG1hcmtldCB0byBwcmV2ZW50IG5ldyBwb3NpdGlvbnMgZnJvbSBiZWluZyBvcGVuZWQuCgojIEFyZ3VtZW50cwoKKiBgYWRtaW5gIC0gQWRkcmVzcyBvZiB0aGUgYWRtaW4KKiBgbWFya2V0X2lkYCAtIFRoZSBtYXJrZXQgaWRlbnRpZmllcgAAAAAMcGF1c2VfbWFya2V0AAAAAgAAAAAAAAAFYWRtaW4AAAAAAAATAAAAAAAAAAltYXJrZXRfaWQAAAAAAAAEAAAAAA==",
         "AAAABQAAAAAAAAAAAAAAEk1hcmtldENyZWF0ZWRFdmVudAAAAAAAAQAAABRtYXJrZXRfY3JlYXRlZF9ldmVudAAAAAIAAAAAAAAACW1hcmtldF9pZAAAAAAAAAQAAAAAAAAAAAAAAAZtYXhfb2kAAAAAAAoAAAAAAAAAAg==",
-        "AAAAAAAAASZDcmVhdGUgYSBuZXcgcGVycGV0dWFsIG1hcmtldC4KCiMgQXJndW1lbnRzCgoqIGBhZG1pbmAgLSBBZGRyZXNzIG9mIHRoZSBhZG1pbgoqIGBtYXJrZXRfaWRgIC0gVW5pcXVlIGlkZW50aWZpZXIgZm9yIHRoZSBtYXJrZXQgKGUuZy4sIDAgPSBYTE0tUEVSUCkKKiBgbWF4X29wZW5faW50ZXJlc3RgIC0gTWF4aW11bSB0b3RhbCBvcGVuIGludGVyZXN0IGFsbG93ZWQgZm9yIHRoaXMgbWFya2V0CiogYG1heF9mdW5kaW5nX3JhdGVgIC0gTWF4aW11bSBmdW5kaW5nIHJhdGUgcGVyIGhvdXIgKGluIGJhc2lzIHBvaW50cykAAAAAAA1jcmVhdGVfbWFya2V0AAAAAAAABAAAAAAAAAAFYWRtaW4AAAAAAAATAAAAAAAAAAltYXJrZXRfaWQAAAAAAAAEAAAAAAAAABFtYXhfb3Blbl9pbnRlcmVzdAAAAAAAAAoAAAAAAAAAEG1heF9mdW5kaW5nX3JhdGUAAAALAAAAAA==",
+        "AAAAAAAAAWRDcmVhdGUgYSBuZXcgcGVycGV0dWFsIG1hcmtldC4KCiMgQXJndW1lbnRzCgoqIGBhZG1pbmAgLSBBZGRyZXNzIG9mIHRoZSBhZG1pbgoqIGBtYXJrZXRfaWRgIC0gVW5pcXVlIGlkZW50aWZpZXIgZm9yIHRoZSBtYXJrZXQgKGUuZy4sIDAgPSBYTE0tUEVSUCkKKiBgdGlja2VyYCAtIE9yYWNsZSB0aWNrZXIgc3ltYm9sIChlLmcuLCAiWExNIiwgIkJUQyIsICJFVEgiKQoqIGBtYXhfb3Blbl9pbnRlcmVzdGAgLSBNYXhpbXVtIHRvdGFsIG9wZW4gaW50ZXJlc3QgYWxsb3dlZCBmb3IgdGhpcyBtYXJrZXQKKiBgbWF4X2Z1bmRpbmdfcmF0ZWAgLSBNYXhpbXVtIGZ1bmRpbmcgcmF0ZSBwZXIgaG91ciAoaW4gYmFzaXMgcG9pbnRzKQAAAA1jcmVhdGVfbWFya2V0AAAAAAAABQAAAAAAAAAFYWRtaW4AAAAAAAATAAAAAAAAAAltYXJrZXRfaWQAAAAAAAAEAAAAAAAAAAZ0aWNrZXIAAAAAABEAAAAAAAAAEW1heF9vcGVuX2ludGVyZXN0AAAAAAAACgAAAAAAAAAQbWF4X2Z1bmRpbmdfcmF0ZQAAAAsAAAAA",
         "AAAAAAAAAH1VbnBhdXNlIGEgbWFya2V0IHRvIGFsbG93IG5ldyBwb3NpdGlvbnMuCgojIEFyZ3VtZW50cwoKKiBgYWRtaW5gIC0gQWRkcmVzcyBvZiB0aGUgYWRtaW4KKiBgbWFya2V0X2lkYCAtIFRoZSBtYXJrZXQgaWRlbnRpZmllcgAAAAAAAA51bnBhdXNlX21hcmtldAAAAAAAAgAAAAAAAAAFYWRtaW4AAAAAAAATAAAAAAAAAAltYXJrZXRfaWQAAAAAAAAEAAAAAA==",
         "AAAAAAAAAJ5HZXQgdGhlIGN1cnJlbnQgZnVuZGluZyByYXRlIGZvciBhIG1hcmtldC4KCiMgQXJndW1lbnRzCgoqIGBtYXJrZXRfaWRgIC0gVGhlIG1hcmtldCBpZGVudGlmaWVyCgojIFJldHVybnMKClRoZSBjdXJyZW50IGZ1bmRpbmcgcmF0ZSAoaW4gYmFzaXMgcG9pbnRzIHBlciBob3VyKQAAAAAAEGdldF9mdW5kaW5nX3JhdGUAAAABAAAAAAAAAAltYXJrZXRfaWQAAAAAAAAEAAAAAQAAAAs=",
         "AAAAAAAAAJBDaGVjayBpZiBhIG1hcmtldCBpcyBjdXJyZW50bHkgcGF1c2VkLgoKIyBBcmd1bWVudHMKCiogYG1hcmtldF9pZGAgLSBUaGUgbWFya2V0IGlkZW50aWZpZXIKCiMgUmV0dXJucwoKVHJ1ZSBpZiBtYXJrZXQgaXMgcGF1c2VkLCBmYWxzZSBvdGhlcndpc2UAAAAQaXNfbWFya2V0X3BhdXNlZAAAAAEAAAAAAAAACW1hcmtldF9pZAAAAAAAAAQAAAABAAAAAQ==",
         "AAAAAAAAAQlDaGVjayBpZiBhIG5ldyBwb3NpdGlvbiBjYW4gYmUgb3BlbmVkIGJhc2VkIG9uIE9JIGxpbWl0cy4KCiMgQXJndW1lbnRzCgoqIGBtYXJrZXRfaWRgIC0gVGhlIG1hcmtldCBpZGVudGlmaWVyCiogYGlzX2xvbmdgIC0gVHJ1ZSBpZiBsb25nIHBvc2l0aW9uLCBmYWxzZSBpZiBzaG9ydAoqIGBzaXplYCAtIFRoZSBzaXplIG9mIHRoZSBwb3NpdGlvbiB0byBvcGVuCgojIFJldHVybnMKClRydWUgaWYgcG9zaXRpb24gY2FuIGJlIG9wZW5lZCwgZmFsc2Ugb3RoZXJ3aXNlAAAAAAAAEWNhbl9vcGVuX3Bvc2l0aW9uAAAAAAAAAwAAAAAAAAAJbWFya2V0X2lkAAAAAAAABAAAAAAAAAAHaXNfbG9uZwAAAAABAAAAAAAAAARzaXplAAAACgAAAAEAAAAB",
+        "AAAAAAAAAJFHZXQgdGhlIHRpY2tlciBzeW1ib2wgZm9yIGEgbWFya2V0LgoKIyBBcmd1bWVudHMKCiogYG1hcmtldF9pZGAgLSBUaGUgbWFya2V0IGlkZW50aWZpZXIKCiMgUmV0dXJucwoKVGhlIHRpY2tlciBzeW1ib2wgKGUuZy4sICJYTE0iLCAiQlRDIiwgIkVUSCIpAAAAAAAAEWdldF9tYXJrZXRfdGlja2VyAAAAAAAAAQAAAAAAAAAJbWFya2V0X2lkAAAAAAAABAAAAAEAAAAR",
         "AAAAAAAAAJ5HZXQgdGhlIGN1cnJlbnQgb3BlbiBpbnRlcmVzdCBmb3IgYSBtYXJrZXQuCgojIEFyZ3VtZW50cwoKKiBgbWFya2V0X2lkYCAtIFRoZSBtYXJrZXQgaWRlbnRpZmllcgoKIyBSZXR1cm5zCgpUdXBsZSBvZiAobG9uZ19vcGVuX2ludGVyZXN0LCBzaG9ydF9vcGVuX2ludGVyZXN0KQAAAAAAEWdldF9vcGVuX2ludGVyZXN0AAAAAAAAAQAAAAAAAAAJbWFya2V0X2lkAAAAAAAABAAAAAEAAAPtAAAAAgAAAAoAAAAK",
         "AAAABQAAAAAAAAAAAAAAF0Z1bmRpbmdSYXRlVXBkYXRlZEV2ZW50AAAAAAEAAAAaZnVuZGluZ19yYXRlX3VwZGF0ZWRfZXZlbnQAAAAAAAQAAAAAAAAACW1hcmtldF9pZAAAAAAAAAQAAAAAAAAAAAAAAAxmdW5kaW5nX3JhdGUAAAALAAAAAAAAAAAAAAAHbG9uZ19vaQAAAAAKAAAAAAAAAAAAAAAIc2hvcnRfb2kAAAAKAAAAAAAAAAI=",
         "AAAAAAAAATZVcGRhdGUgdGhlIGZ1bmRpbmcgcmF0ZSBmb3IgYSBtYXJrZXQuCgpDYWxsZWQgZXZlcnkgNjAgc2Vjb25kcyBieSB0aGUga2VlcGVyIGJvdC4KQ2FsY3VsYXRlcyBmdW5kaW5nIHJhdGUgYmFzZWQgb24gbWFya2V0IGltYmFsYW5jZSBhbmQgdXBkYXRlcyBjdW11bGF0aXZlIGZ1bmRpbmcuCkZ1bmRpbmcgcmF0ZSBpcyBleHByZXNzZWQgaW4gYmFzaXMgcG9pbnRzIHBlciBob3VyLgoKIyBBcmd1bWVudHMKCiogYGNhbGxlcmAgLSBBZGRyZXNzIGNhbGxpbmcgdGhpcyBmdW5jdGlvbgoqIGBtYXJrZXRfaWRgIC0gVGhlIG1hcmtldCBpZGVudGlmaWVyAAAAAAATdXBkYXRlX2Z1bmRpbmdfcmF0ZQAAAAACAAAAAAAAAAZjYWxsZXIAAAAAABMAAAAAAAAACW1hcmtldF9pZAAAAAAAAAQAAAAA",
@@ -438,6 +470,7 @@ export class Client extends ContractClient {
         get_funding_rate: this.txFromJSON<i128>,
         is_market_paused: this.txFromJSON<boolean>,
         can_open_position: this.txFromJSON<boolean>,
+        get_market_ticker: this.txFromJSON<string>,
         get_open_interest: this.txFromJSON<readonly [u128, u128]>,
         update_funding_rate: this.txFromJSON<null>,
         set_position_manager: this.txFromJSON<null>,

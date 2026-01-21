@@ -25,6 +25,7 @@ import { Client as ConfigManagerClient } from '@stellars-finance/config-manager'
 import { Client as OracleIntegratorClient } from '@stellars-finance/oracle-integrator';
 import { Client as LiquidityPoolClient } from '@stellars-finance/liquidity-pool';
 import { Client as PositionManagerClient } from '@stellars-finance/position-manager';
+import { Client as MarketManagerClient } from '@stellars-finance/market-manager';
 import { Keypair, TransactionBuilder } from '@stellar/stellar-sdk';
 
 type NetworkType = 'testnet' | 'mainnet';
@@ -183,7 +184,23 @@ async function main() {
         return { signedTxXdr: tx.toXDR() };
       }
     });
-    console.log('   ✓ Position manager address set\n');
+    console.log('   ✓ Position manager address set');
+
+    // 2f. Set market manager address in ConfigManager
+    console.log('   → Setting market manager address in ConfigManager...');
+    const setMarketManagerTx = await configManagerClient.set_market_manager({
+      admin: publicKey,
+      contract: contracts['market-manager'],
+    });
+
+    await setMarketManagerTx.signAndSend({
+      signTransaction: async (xdr: string) => {
+        const tx = TransactionBuilder.fromXDR(xdr, networkConfig.networkPassphrase);
+        tx.sign(sourceKeypair);
+        return { signedTxXdr: tx.toXDR() };
+      }
+    });
+    console.log('   ✓ Market manager address set\n');
 
     // 3. Initialize OracleIntegrator
     console.log('3️⃣  Initializing OracleIntegrator...');
@@ -243,9 +260,42 @@ async function main() {
     });
     console.log('   ✓ PositionManager authorized to reserve/release liquidity\n');
 
-    // 5. MarketManager - No initialization needed (uses create_market instead)
-    console.log('5️⃣  MarketManager...');
-    console.log('   ℹ️  MarketManager has no initialize function - use create_market to set up markets\n');
+    // 5. Initialize MarketManager
+    console.log('5️⃣  Initializing MarketManager...');
+    const marketManagerClient = new MarketManagerClient({
+      ...clientOptions,
+      contractId: contracts['market-manager'],
+    });
+
+    const marketInitTx = await marketManagerClient.initialize({
+      config_manager: contracts['config-manager'],
+      admin: publicKey,
+    });
+
+    await marketInitTx.signAndSend({
+      signTransaction: async (xdr: string) => {
+        const tx = TransactionBuilder.fromXDR(xdr, networkConfig.networkPassphrase);
+        tx.sign(sourceKeypair);
+        return { signedTxXdr: tx.toXDR() };
+      }
+    });
+    console.log('   ✓ MarketManager initialized');
+
+    // 5b. Authorize PositionManager to update OI
+    console.log('   → Authorizing PositionManager to update open interest...');
+    const setMarketPositionManagerTx = await marketManagerClient.set_position_manager({
+      admin: publicKey,
+      position_manager: contracts['position-manager'],
+    });
+
+    await setMarketPositionManagerTx.signAndSend({
+      signTransaction: async (xdr: string) => {
+        const tx = TransactionBuilder.fromXDR(xdr, networkConfig.networkPassphrase);
+        tx.sign(sourceKeypair);
+        return { signedTxXdr: tx.toXDR() };
+      }
+    });
+    console.log('   ✓ PositionManager authorized for MarketManager\n');
 
     // 6. Initialize PositionManager
     console.log('6️⃣  Initializing PositionManager...');
@@ -268,6 +318,97 @@ async function main() {
     });
     console.log('   ✓ PositionManager initialized\n');
 
+    // 7. Set Reflector Oracle address (testnet)
+    console.log('7️⃣  Configuring Reflector Oracle...');
+    // Reflector testnet oracle address - see https://reflector.network/docs
+    // Note: Testnet addresses may change after network resets, verify at reflector.network
+    const REFLECTOR_TESTNET_ADDRESS = 'CAVLP5DH2GJPZMVO7IJY4CVOD5MWEFTJFVPD2YY2FQXOQHRGHK4D6HLP';
+
+    const setReflectorTx = await configManagerClient.set_reflector_oracle({
+      admin: publicKey,
+      contract: REFLECTOR_TESTNET_ADDRESS,
+    });
+
+    await setReflectorTx.signAndSend({
+      signTransaction: async (xdr: string) => {
+        const tx = TransactionBuilder.fromXDR(xdr, networkConfig.networkPassphrase);
+        tx.sign(sourceKeypair);
+        return { signedTxXdr: tx.toXDR() };
+      }
+    });
+    console.log(`   ✓ Reflector Oracle set to: ${REFLECTOR_TESTNET_ADDRESS}\n`);
+
+    // 8. Create markets (XLM, BTC, ETH)
+    console.log('8️⃣  Creating markets...');
+
+    const markets = [
+      { id: 0, ticker: 'XLM', maxOI: BigInt('1000000000000000'), maxFunding: 1000 },  // 10% max funding
+      { id: 1, ticker: 'BTC', maxOI: BigInt('1000000000000000'), maxFunding: 1000 },
+      { id: 2, ticker: 'ETH', maxOI: BigInt('1000000000000000'), maxFunding: 1000 },
+    ];
+
+    for (const market of markets) {
+      console.log(`   → Creating ${market.ticker} market (id=${market.id})...`);
+      const createMarketTx = await marketManagerClient.create_market({
+        admin: publicKey,
+        market_id: market.id,
+        ticker: market.ticker,
+        max_open_interest: market.maxOI,
+        max_funding_rate: BigInt(market.maxFunding),
+      });
+
+      await createMarketTx.signAndSend({
+        signTransaction: async (xdr: string) => {
+          const tx = TransactionBuilder.fromXDR(xdr, networkConfig.networkPassphrase);
+          tx.sign(sourceKeypair);
+          return { signedTxXdr: tx.toXDR() };
+        }
+      });
+      console.log(`   ✓ ${market.ticker} market created`);
+    }
+    console.log('');
+
+    // 9. Enable test mode for oracle (recommended for testnet)
+    console.log('9️⃣  Configuring Oracle test mode...');
+
+    // Set test mode with base prices
+    // Prices are in 1e7 format: $1.00 = 10_000_000
+    const testBasePrices = new Map<number, bigint>([
+      [0, BigInt(10_000_000)],      // XLM: $1.00
+      [1, BigInt(500_000_000_000)], // BTC: $50,000
+      [2, BigInt(30_000_000_000)],  // ETH: $3,000
+    ]);
+
+    const setTestModeTx = await oracleIntegratorClient.set_test_mode({
+      admin: publicKey,
+      enabled: true,
+      base_prices: testBasePrices,
+    });
+
+    await setTestModeTx.signAndSend({
+      signTransaction: async (xdr: string) => {
+        const tx = TransactionBuilder.fromXDR(xdr, networkConfig.networkPassphrase);
+        tx.sign(sourceKeypair);
+        return { signedTxXdr: tx.toXDR() };
+      }
+    });
+    console.log('   ✓ Oracle test mode enabled with base prices');
+
+    // Enable fixed price mode (no oscillation) for predictable testing
+    const setFixedPriceTx = await oracleIntegratorClient.set_fixed_price_mode({
+      admin: publicKey,
+      enabled: true,
+    });
+
+    await setFixedPriceTx.signAndSend({
+      signTransaction: async (xdr: string) => {
+        const tx = TransactionBuilder.fromXDR(xdr, networkConfig.networkPassphrase);
+        tx.sign(sourceKeypair);
+        return { signedTxXdr: tx.toXDR() };
+      }
+    });
+    console.log('   ✓ Fixed price mode enabled (no oscillation)\n');
+
     console.log('\n✅ All contracts initialized successfully!\n');
     console.log('Contract addresses:');
     Object.entries(contracts).forEach(([name, address]) => {
@@ -275,10 +416,11 @@ async function main() {
     });
 
     console.log('\n📝 Next steps:');
-    console.log('   1. Set protocol configuration via ConfigManager');
-    console.log('   2. Mint test tokens from the faucet');
-    console.log('   3. Fund the liquidity pool for trading');
-    console.log('   4. Create markets and set up price feeds\n');
+    console.log('   1. Mint test tokens from the faucet');
+    console.log('   2. Fund the liquidity pool for trading');
+    console.log('   3. Optionally switch to production oracle by disabling test mode\n');
+    console.log('⚠️  Note: Oracle is in TEST MODE with fixed prices.');
+    console.log('   To use live Reflector prices, call oracle_integrator.set_test_mode(false)\n');
 
   } catch (error) {
     console.error('\n❌ Initialization failed:', error);

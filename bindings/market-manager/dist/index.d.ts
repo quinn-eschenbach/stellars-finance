@@ -16,6 +16,7 @@ export interface Market {
     max_funding_rate: i128;
     max_open_interest: u128;
     short_open_interest: u128;
+    ticker: string;
 }
 export type DataKey = {
     tag: "ConfigManager";
@@ -94,12 +95,14 @@ export interface Client {
      *
      * * `admin` - Address of the admin
      * * `market_id` - Unique identifier for the market (e.g., 0 = XLM-PERP)
+     * * `ticker` - Oracle ticker symbol (e.g., "XLM", "BTC", "ETH")
      * * `max_open_interest` - Maximum total open interest allowed for this market
      * * `max_funding_rate` - Maximum funding rate per hour (in basis points)
      */
-    create_market: ({ admin, market_id, max_open_interest, max_funding_rate }: {
+    create_market: ({ admin, market_id, ticker, max_open_interest, max_funding_rate }: {
         admin: string;
         market_id: u32;
+        ticker: string;
         max_open_interest: u128;
         max_funding_rate: i128;
     }, options?: {
@@ -230,6 +233,34 @@ export interface Client {
          */
         simulate?: boolean;
     }) => Promise<AssembledTransaction<boolean>>;
+    /**
+     * Construct and simulate a get_market_ticker transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+     * Get the ticker symbol for a market.
+     *
+     * # Arguments
+     *
+     * * `market_id` - The market identifier
+     *
+     * # Returns
+     *
+     * The ticker symbol (e.g., "XLM", "BTC", "ETH")
+     */
+    get_market_ticker: ({ market_id }: {
+        market_id: u32;
+    }, options?: {
+        /**
+         * The fee to pay for the transaction. Default: BASE_FEE
+         */
+        fee?: number;
+        /**
+         * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
+         */
+        timeoutInSeconds?: number;
+        /**
+         * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
+         */
+        simulate?: boolean;
+    }) => Promise<AssembledTransaction<string>>;
     /**
      * Construct and simulate a get_open_interest transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
      * Get the current open interest for a market.
@@ -396,6 +427,7 @@ export declare class Client extends ContractClient {
         get_funding_rate: (json: string) => AssembledTransaction<bigint>;
         is_market_paused: (json: string) => AssembledTransaction<boolean>;
         can_open_position: (json: string) => AssembledTransaction<boolean>;
+        get_market_ticker: (json: string) => AssembledTransaction<string>;
         get_open_interest: (json: string) => AssembledTransaction<readonly [bigint, bigint]>;
         update_funding_rate: (json: string) => AssembledTransaction<null>;
         set_position_manager: (json: string) => AssembledTransaction<null>;

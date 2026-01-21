@@ -20,7 +20,7 @@ export type DataKey = {
 export interface Client {
     /**
      * Construct and simulate a get_price transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
-     * Get the current price for a specific asset from all oracle sources.
+     * Get the current price for a specific asset from Reflector oracle.
      *
      * # Arguments
      *
@@ -28,12 +28,12 @@ export interface Client {
      *
      * # Returns
      *
-     * The aggregated (median) price
+     * The price in protocol format (1e7 decimals)
      *
      * # Implementation
      *
      * In test mode: Returns time-based simulated price
-     * In production mode: Fetches from DIA and Reflector, validates, returns median
+     * In production mode: Fetches from Reflector oracle, validates, and returns
      */
     get_price: ({ market_id }: {
         market_id: u32;
@@ -163,34 +163,6 @@ export interface Client {
          */
         simulate?: boolean;
     }) => Promise<AssembledTransaction<boolean>>;
-    /**
-     * Construct and simulate a fetch_dia_price transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
-     * Fetch price from DIA oracle.
-     *
-     * # Arguments
-     *
-     * * `market_id` - The market identifier
-     *
-     * # Returns
-     *
-     * Tuple of (price, timestamp)
-     */
-    fetch_dia_price: ({ market_id }: {
-        market_id: u32;
-    }, options?: {
-        /**
-         * The fee to pay for the transaction. Default: BASE_FEE
-         */
-        fee?: number;
-        /**
-         * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-         */
-        timeoutInSeconds?: number;
-        /**
-         * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-         */
-        simulate?: boolean;
-    }) => Promise<AssembledTransaction<readonly [i128, u64]>>;
     /**
      * Construct and simulate a calculate_median transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
      * Calculate median price from multiple oracle sources.
@@ -356,15 +328,15 @@ export interface Client {
     }) => Promise<AssembledTransaction<boolean>>;
     /**
      * Construct and simulate a fetch_reflector_price transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
-     * Fetch price from Reflector oracle.
+     * Fetch price from Reflector oracle (SEP-40 compliant).
      *
      * # Arguments
      *
-     * * `market_id` - The market identifier
+     * * `market_id` - The market identifier (0=XLM, 1=BTC, 2=ETH)
      *
      * # Returns
      *
-     * Tuple of (price, timestamp)
+     * Tuple of (price, timestamp) in protocol format (1e7 decimals)
      */
     fetch_reflector_price: ({ market_id }: {
         market_id: u32;
@@ -402,7 +374,6 @@ export declare class Client extends ContractClient {
         get_test_mode: (json: string) => AssembledTransaction<boolean>;
         set_test_mode: (json: string) => AssembledTransaction<null>;
         validate_price: (json: string) => AssembledTransaction<boolean>;
-        fetch_dia_price: (json: string) => AssembledTransaction<readonly [bigint, bigint]>;
         calculate_median: (json: string) => AssembledTransaction<bigint>;
         fetch_pyth_price: (json: string) => AssembledTransaction<readonly [bigint, bigint, bigint]>;
         get_oracle_health: (json: string) => AssembledTransaction<readonly [boolean, boolean, boolean]>;
