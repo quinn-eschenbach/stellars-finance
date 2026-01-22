@@ -122,25 +122,31 @@ export function useUserTokenBalance() {
 
 /**
  * Hook to calculate user's share value in the pool
+ * Uses actual pool balance (available + reserved) to include profits/losses
  * @returns Query result with user's share value
  */
 export function useUserShareValue() {
   const { publicKey } = useWallet();
   const { data: userShares } = useUserShares();
   const { data: totalShares } = useTotalShares();
-  const { data: totalDeposits } = useTotalDeposits();
+  const { data: reservedLiquidity } = useReservedLiquidity();
+  const { data: availableLiquidity } = useAvailableLiquidity();
 
   return useQuery({
     queryKey: LIQUIDITY_POOL_KEYS.userShareValue(publicKey || ''),
     queryFn: () => {
-      if (!userShares || !totalShares || !totalDeposits) {
+      if (!userShares || !totalShares || !reservedLiquidity || !availableLiquidity) {
         return { raw: BigInt(0), formatted: 0 };
       }
+
+      // Use actual pool balance (available + reserved) instead of totalDeposits
+      // This ensures profits/losses from trading are reflected in share value
+      const actualPoolBalance = availableLiquidity.raw + reservedLiquidity.raw;
 
       const value = calculateUserShareValue(
         userShares.raw,
         totalShares.raw,
-        totalDeposits.raw
+        actualPoolBalance
       );
 
       return {
@@ -148,7 +154,7 @@ export function useUserShareValue() {
         formatted: fromContractAmount(value),
       };
     },
-    enabled: !!publicKey && !!userShares && !!totalShares && !!totalDeposits,
+    enabled: !!publicKey && !!userShares && !!totalShares && !!reservedLiquidity && !!availableLiquidity,
     staleTime: 10000,
   });
 }
