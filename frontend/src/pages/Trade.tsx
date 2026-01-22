@@ -13,6 +13,13 @@ import {
 import { TRADING_PAIRS } from "@/types/market";
 import { usePrices } from "@/contexts/PriceContext";
 
+// Map trading pair symbols to market IDs (matches contract)
+const SYMBOL_TO_MARKET_ID: Record<string, number> = {
+  XLMUSDT: 0,
+  BTCUSDT: 1,
+  ETHUSDT: 2,
+};
+
 const Trade = () => {
   const { pair } = useParams<{ pair: string }>();
   const { getPrice } = usePrices();
@@ -54,7 +61,7 @@ const Trade = () => {
             <TradePanel asset={currentPair.displaySymbol} currentPrice={currentPrice} />
           </div>
           <div className="lg:col-span-9">
-            <TradeChart symbol={currentPair.symbol} />
+            <TradeChart symbol={currentPair.symbol} marketId={SYMBOL_TO_MARKET_ID[currentPair.symbol] ?? 0} />
           </div>
         </div>
 

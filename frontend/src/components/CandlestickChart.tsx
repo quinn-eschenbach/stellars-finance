@@ -1,17 +1,28 @@
 import { useEffect, useRef } from "react";
-import { createChart, ColorType, CandlestickSeries } from "lightweight-charts";
-import type { IChartApi, ISeriesApi, CandlestickData } from "lightweight-charts";
+import { createChart, ColorType, CandlestickSeries, LineStyle } from "lightweight-charts";
+import type { IChartApi, ISeriesApi, CandlestickData, IPriceLine } from "lightweight-charts";
 import { Candle } from "@/types/market";
+
+export interface PriceLine {
+  id: string;
+  price: number;
+  color: string;
+  title: string;
+  lineStyle: LineStyle;
+  lineWidth?: number;
+}
 
 interface CandlestickChartProps {
   candles: Candle[];
   height?: number;
+  priceLines?: PriceLine[];
 }
 
-export const CandlestickChart = ({ candles, height = 400 }: CandlestickChartProps) => {
+export const CandlestickChart = ({ candles, height = 400, priceLines }: CandlestickChartProps) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candlestickSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const priceLinesRef = useRef<Map<string, IPriceLine>>(new Map());
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -22,24 +33,24 @@ export const CandlestickChart = ({ candles, height = 400 }: CandlestickChartProp
       height: height,
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
-        textColor: "#71717a", // Gray text to match app
+        textColor: "#71717a",
       },
       grid: {
-        vertLines: { visible: false }, // Remove vertical grid lines
-        horzLines: { visible: false }, // Remove horizontal grid lines
+        vertLines: { visible: false },
+        horzLines: { visible: false },
       },
       crosshair: {
         mode: 1,
         vertLine: {
           color: "#71717a",
           width: 1,
-          style: 3, // Dashed line
+          style: 3,
           labelBackgroundColor: "#27272a",
         },
         horzLine: {
           color: "#71717a",
           width: 1,
-          style: 3, // Dashed line
+          style: 3,
           labelBackgroundColor: "#27272a",
         },
       },
@@ -81,6 +92,8 @@ export const CandlestickChart = ({ candles, height = 400 }: CandlestickChartProp
 
     return () => {
       window.removeEventListener("resize", handleResize);
+      // Clear price lines before removing chart
+      priceLinesRef.current.clear();
       if (chartRef.current) {
         chart.remove();
       }
@@ -106,6 +119,47 @@ export const CandlestickChart = ({ candles, height = 400 }: CandlestickChartProp
       chartRef.current.timeScale().fitContent();
     }
   }, [candles]);
+
+  // Update price lines
+  useEffect(() => {
+    if (!candlestickSeriesRef.current) return;
+
+    const series = candlestickSeriesRef.current;
+    const currentLines = priceLinesRef.current;
+    const newLineIds = new Set(priceLines?.map((pl) => pl.id) || []);
+
+    // Remove lines that no longer exist
+    currentLines.forEach((line, id) => {
+      if (!newLineIds.has(id)) {
+        series.removePriceLine(line);
+        currentLines.delete(id);
+      }
+    });
+
+    // Update or create lines
+    priceLines?.forEach((pl) => {
+      const existing = currentLines.get(pl.id);
+      if (existing) {
+        // Update existing line
+        existing.applyOptions({
+          price: pl.price,
+          title: pl.title,
+          color: pl.color,
+        });
+      } else {
+        // Create new line
+        const newLine = series.createPriceLine({
+          price: pl.price,
+          color: pl.color,
+          title: pl.title,
+          lineStyle: pl.lineStyle,
+          lineWidth: pl.lineWidth || 1,
+          axisLabelVisible: true,
+        });
+        currentLines.set(pl.id, newLine);
+      }
+    });
+  }, [priceLines]);
 
   return <div ref={chartContainerRef} className="w-full" />;
 };

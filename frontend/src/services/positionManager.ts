@@ -21,10 +21,15 @@ const DECIMAL_MULTIPLIER = Math.pow(10, DECIMALS);
  */
 export interface Position {
   trader: string;
+  market_id: number;
   collateral: bigint;
   size: bigint;
   is_long: boolean;
   entry_price: bigint;
+  liquidation_price: bigint;
+  entry_funding_long: bigint;
+  entry_funding_short: bigint;
+  last_interaction: bigint;
 }
 
 /**

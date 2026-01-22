@@ -48,7 +48,4 @@ export const TRADING_PAIRS = [
   { symbol: "XLMUSDT", displaySymbol: "XLM-USD", name: "Stellar" },
   { symbol: "BTCUSDT", displaySymbol: "BTC-USD", name: "Bitcoin" },
   { symbol: "ETHUSDT", displaySymbol: "ETH-USD", name: "Ethereum" },
-  { symbol: "SOLUSDT", displaySymbol: "SOL-USD", name: "Solana" },
-  { symbol: "ARBUSDT", displaySymbol: "ARB-USD", name: "Arbitrum" },
-  { symbol: "OPUSDT", displaySymbol: "OP-USD", name: "Optimism" },
 ] as const;

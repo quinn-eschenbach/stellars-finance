@@ -57,6 +57,7 @@ export const POSITION_MANAGER_KEYS = {
 export interface FormattedPosition {
   id: bigint;
   trader: string;
+  marketId: number;
   collateral: number;
   size: number;
   isLong: boolean;
@@ -162,6 +163,7 @@ export function useUserPositions() {
       const formatted: FormattedPosition[] = positions.map((pos) => ({
         id: pos.id,
         trader: pos.trader,
+        marketId: pos.market_id,
         collateral: fromContractAmount(pos.collateral),
         size: fromContractAmount(pos.size),
         isLong: pos.is_long,
@@ -196,6 +198,7 @@ export function usePosition(positionId: bigint | null) {
         formatted: {
           id: positionId,
           trader: position.trader,
+          marketId: position.market_id,
           collateral: fromContractAmount(position.collateral),
           size: fromContractAmount(position.size),
           isLong: position.is_long,

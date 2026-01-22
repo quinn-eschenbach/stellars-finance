@@ -5,7 +5,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { toast } from "sonner";
-import { useOpenPosition, useUserTokenBalance } from "@/hooks/usePositionManager";
+import {
+  useOpenPosition,
+  useCreateLimitOrder,
+  useUserTokenBalance,
+  useMinExecutionFee,
+} from "@/hooks/usePositionManager";
 import { useWallet } from "@/hooks/useWallet";
 import { MarketId } from "@/services/positionManager";
 import { Loader2 } from "lucide-react";
@@ -15,14 +20,22 @@ interface TradePanelProps {
   currentPrice: number;
 }
 
+type OrderMode = "market" | "limit";
+
 const TradePanel = ({ asset, currentPrice }: TradePanelProps) => {
   const { publicKey } = useWallet();
   const openPositionMutation = useOpenPosition();
+  const createLimitOrderMutation = useCreateLimitOrder();
   const { data: tokenBalance } = useUserTokenBalance();
+  const { data: minFee } = useMinExecutionFee();
 
+  const [orderMode, setOrderMode] = useState<OrderMode>("market");
   const [position, setPosition] = useState<"long" | "short">("long");
   const [collateral, setCollateral] = useState("");
   const [leverage, setLeverage] = useState([10]);
+  const [triggerPrice, setTriggerPrice] = useState("");
+
+  const isPending = openPositionMutation.isPending || createLimitOrderMutation.isPending;
 
   const calculatePositionSize = () => {
     const collateralAmount = parseFloat(collateral) || 0;
@@ -34,16 +47,15 @@ const TradePanel = ({ asset, currentPrice }: TradePanelProps) => {
     if (collateralAmount === 0) return 0;
 
     const maintenanceMargin = 0.5; // 0.5% maintenance margin
+    const entryPrice = orderMode === "limit" ? parseFloat(triggerPrice) || currentPrice : currentPrice;
 
     if (position === "long") {
-      return currentPrice * (1 - (1 / leverage[0]) + (maintenanceMargin / 100));
-    } else {
-      return currentPrice * (1 + (1 / leverage[0]) - (maintenanceMargin / 100));
+      return entryPrice * (1 - 1 / leverage[0] + maintenanceMargin / 100);
     }
+    return entryPrice * (1 + 1 / leverage[0] - maintenanceMargin / 100);
   };
 
   const handleTrade = async (positionType: "long" | "short") => {
-    // Update position state for loading indicator
     setPosition(positionType);
 
     if (!publicKey) {
@@ -58,7 +70,6 @@ const TradePanel = ({ asset, currentPrice }: TradePanelProps) => {
 
     const collateralAmount = parseFloat(collateral);
 
-    // Check if user has enough balance
     if (tokenBalance && collateralAmount > tokenBalance.formatted) {
       toast.error("Insufficient balance", {
         description: `You have ${tokenBalance.formatted.toFixed(2)} USD available`,
@@ -66,40 +77,115 @@ const TradePanel = ({ asset, currentPrice }: TradePanelProps) => {
       return;
     }
 
-    // Validate leverage (contract enforces 5-20x)
     if (leverage[0] < 5 || leverage[0] > 20) {
       toast.error("Leverage must be between 5x and 20x");
       return;
     }
 
-    // Open position via contract
-    openPositionMutation.mutate(
+    // Market order
+    if (orderMode === "market") {
+      openPositionMutation.mutate(
+        {
+          marketId: MarketId.XLM_PERP,
+          collateral: collateralAmount,
+          leverage: leverage[0],
+          isLong: positionType === "long",
+        },
+        {
+          onSuccess: () => {
+            setCollateral("");
+            setLeverage([10]);
+          },
+        }
+      );
+      return;
+    }
+
+    // Limit order
+    const trigger = parseFloat(triggerPrice);
+    if (!trigger || trigger <= 0) {
+      toast.error("Please enter a valid trigger price");
+      return;
+    }
+
+    const executionFee = minFee?.formatted || 0.1;
+
+    createLimitOrderMutation.mutate(
       {
-        marketId: MarketId.XLM_PERP, // For MVP, always XLM-PERP (fixed $1 price)
+        marketId: MarketId.XLM_PERP,
+        triggerPrice: trigger,
         collateral: collateralAmount,
         leverage: leverage[0],
         isLong: positionType === "long",
+        executionFee,
       },
       {
         onSuccess: () => {
-          // Clear form on success
           setCollateral("");
           setLeverage([10]);
+          setTriggerPrice("");
         },
       }
     );
   };
 
+  const entryPrice = orderMode === "limit" ? parseFloat(triggerPrice) || currentPrice : currentPrice;
+
   return (
     <Card className="h-full">
-      <CardHeader>
+      <CardHeader className="pb-4">
         <CardTitle>Open Position</CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
+        {/* Order Mode Toggle */}
+        <div className="flex gap-2 p-1 bg-secondary rounded-lg">
+          <button
+            onClick={() => setOrderMode("market")}
+            className={`flex-1 py-2 text-sm font-medium rounded transition-colors ${
+              orderMode === "market"
+                ? "bg-background shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            disabled={isPending}
+          >
+            Market
+          </button>
+          <button
+            onClick={() => setOrderMode("limit")}
+            className={`flex-1 py-2 text-sm font-medium rounded transition-colors ${
+              orderMode === "limit"
+                ? "bg-background shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            disabled={isPending}
+          >
+            Limit
+          </button>
+        </div>
+
         <div className="p-3 bg-secondary rounded-lg">
           <div className="text-sm text-muted-foreground mb-1">Market Price</div>
           <div className="text-xl font-bold">${currentPrice.toLocaleString()}</div>
         </div>
+
+        {/* Trigger Price (Limit orders only) */}
+        {orderMode === "limit" && (
+          <div>
+            <Label htmlFor="triggerPrice">Trigger Price</Label>
+            <Input
+              id="triggerPrice"
+              type="number"
+              placeholder={currentPrice.toFixed(4)}
+              value={triggerPrice}
+              onChange={(e) => setTriggerPrice(e.target.value)}
+              disabled={isPending}
+              className="mt-2"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Order executes when price reaches this level
+            </p>
+          </div>
+        )}
 
         <div>
           <div className="flex justify-between items-center mb-2">
@@ -116,7 +202,7 @@ const TradePanel = ({ asset, currentPrice }: TradePanelProps) => {
             placeholder="0.00"
             value={collateral}
             onChange={(e) => setCollateral(e.target.value)}
-            disabled={openPositionMutation.isPending}
+            disabled={isPending}
           />
           {tokenBalance && (
             <Button
@@ -124,7 +210,7 @@ const TradePanel = ({ asset, currentPrice }: TradePanelProps) => {
               size="sm"
               className="h-auto p-0 mt-1 text-xs"
               onClick={() => setCollateral(tokenBalance.formatted.toString())}
-              disabled={openPositionMutation.isPending}
+              disabled={isPending}
             >
               Max
             </Button>
@@ -143,15 +229,12 @@ const TradePanel = ({ asset, currentPrice }: TradePanelProps) => {
             max={20}
             step={1}
             className="mb-2"
-            disabled={openPositionMutation.isPending}
+            disabled={isPending}
           />
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>5x</span>
             <span>20x (Max)</span>
           </div>
-          <p className="text-xs text-muted-foreground mt-1">
-            Contract enforces 5-20x leverage range
-          </p>
         </div>
 
         <div className="space-y-2 p-4 bg-secondary rounded-lg">
@@ -160,28 +243,41 @@ const TradePanel = ({ asset, currentPrice }: TradePanelProps) => {
             <span className="font-medium">{calculatePositionSize().toFixed(2)} USD</span>
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">Entry Price</span>
-            <span className="font-medium">${currentPrice.toLocaleString()}</span>
+            <span className="text-muted-foreground">
+              {orderMode === "limit" ? "Trigger Price" : "Entry Price"}
+            </span>
+            <span className="font-medium">${entryPrice.toLocaleString()}</span>
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">Liquidation Price</span>
             <span className="font-medium text-danger">
-              ${calculateLiquidationPrice().toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ${calculateLiquidationPrice().toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
             </span>
           </div>
+          {orderMode === "limit" && minFee && (
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Execution Fee</span>
+              <span className="font-medium">${minFee.formatted.toFixed(2)}</span>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <Button
             onClick={() => handleTrade("long")}
             className="bg-success hover:bg-success/90 text-success-foreground"
-            disabled={!publicKey || openPositionMutation.isPending}
+            disabled={!publicKey || isPending}
           >
-            {openPositionMutation.isPending && position === "long" ? (
+            {isPending && position === "long" ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                Opening...
+                {orderMode === "limit" ? "Placing..." : "Opening..."}
               </>
+            ) : orderMode === "limit" ? (
+              "Long Limit"
             ) : (
               "Long"
             )}
@@ -189,22 +285,22 @@ const TradePanel = ({ asset, currentPrice }: TradePanelProps) => {
           <Button
             onClick={() => handleTrade("short")}
             className="bg-danger hover:bg-danger/90 text-danger-foreground"
-            disabled={!publicKey || openPositionMutation.isPending}
+            disabled={!publicKey || isPending}
           >
-            {openPositionMutation.isPending && position === "short" ? (
+            {isPending && position === "short" ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                Opening...
+                {orderMode === "limit" ? "Placing..." : "Opening..."}
               </>
+            ) : orderMode === "limit" ? (
+              "Short Limit"
             ) : (
               "Short"
             )}
           </Button>
         </div>
         {!publicKey && (
-          <p className="text-sm text-center text-muted-foreground">
-            Connect wallet to trade
-          </p>
+          <p className="text-sm text-center text-muted-foreground">Connect wallet to trade</p>
         )}
       </CardContent>
     </Card>
