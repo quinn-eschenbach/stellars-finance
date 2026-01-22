@@ -1,4 +1,4 @@
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import Header from "@/components/Header";
 import TradeChart from "@/components/TradeChart";
 import TradePanel from "@/components/TradePanel";
@@ -22,6 +22,7 @@ const SYMBOL_TO_MARKET_ID: Record<string, number> = {
 
 const Trade = () => {
   const { pair } = useParams<{ pair: string }>();
+  const navigate = useNavigate();
   const { getPrice } = usePrices();
 
   // Find the current trading pair
@@ -37,19 +38,17 @@ const Trade = () => {
 
       <main className="container mx-auto px-4 py-6">
         <div className="mb-6">
-          <Select value={currentPair.displaySymbol}>
+          <Select value={currentPair.displaySymbol} onValueChange={(value) => navigate(`/trade/${value}`)}>
             <SelectTrigger className="w-[280px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {TRADING_PAIRS.map((tradingPair) => (
                 <SelectItem key={tradingPair.displaySymbol} value={tradingPair.displaySymbol}>
-                  <a href={`/trade/${tradingPair.displaySymbol}`} className="block w-full">
-                    <div className="flex items-center justify-between gap-4">
-                      <span>{tradingPair.name}</span>
-                      <span className="text-muted-foreground">{tradingPair.displaySymbol}</span>
-                    </div>
-                  </a>
+                  <div className="flex items-center justify-between gap-4">
+                    <span>{tradingPair.name}</span>
+                    <span className="text-muted-foreground">{tradingPair.displaySymbol}</span>
+                  </div>
                 </SelectItem>
               ))}
             </SelectContent>
@@ -58,7 +57,7 @@ const Trade = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6">
           <div className="lg:col-span-3">
-            <TradePanel asset={currentPair.displaySymbol} currentPrice={currentPrice} />
+            <TradePanel asset={currentPair.displaySymbol} currentPrice={currentPrice} marketId={SYMBOL_TO_MARKET_ID[currentPair.symbol] ?? 0} />
           </div>
           <div className="lg:col-span-9">
             <TradeChart symbol={currentPair.symbol} marketId={SYMBOL_TO_MARKET_ID[currentPair.symbol] ?? 0} />

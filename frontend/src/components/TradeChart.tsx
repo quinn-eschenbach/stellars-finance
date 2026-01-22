@@ -40,9 +40,10 @@ const buildPriceLines = (
 ): PriceLine[] => {
   const lines: PriceLine[] = [];
 
-  // Add position lines (entry and liquidation)
-  // Note: For MVP, all positions are market 0 (XLM-PERP)
-  positions.forEach((pos) => {
+  // Add position lines (entry and liquidation) for the current market
+  positions
+    .filter((pos) => pos.marketId === marketId)
+    .forEach((pos) => {
     // Entry price line
     lines.push({
       id: `entry-${pos.id}`,

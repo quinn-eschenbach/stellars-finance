@@ -12,17 +12,17 @@ import {
   useMinExecutionFee,
 } from "@/hooks/usePositionManager";
 import { useWallet } from "@/hooks/useWallet";
-import { MarketId } from "@/services/positionManager";
 import { Loader2 } from "lucide-react";
 
 interface TradePanelProps {
   asset: string;
   currentPrice: number;
+  marketId: number;
 }
 
 type OrderMode = "market" | "limit";
 
-const TradePanel = ({ asset, currentPrice }: TradePanelProps) => {
+const TradePanel = ({ currentPrice, marketId }: TradePanelProps) => {
   const { publicKey } = useWallet();
   const openPositionMutation = useOpenPosition();
   const createLimitOrderMutation = useCreateLimitOrder();
@@ -86,7 +86,7 @@ const TradePanel = ({ asset, currentPrice }: TradePanelProps) => {
     if (orderMode === "market") {
       openPositionMutation.mutate(
         {
-          marketId: MarketId.XLM_PERP,
+          marketId,
           collateral: collateralAmount,
           leverage: leverage[0],
           isLong: positionType === "long",
@@ -112,7 +112,7 @@ const TradePanel = ({ asset, currentPrice }: TradePanelProps) => {
 
     createLimitOrderMutation.mutate(
       {
-        marketId: MarketId.XLM_PERP,
+        marketId,
         triggerPrice: trigger,
         collateral: collateralAmount,
         leverage: leverage[0],
