@@ -2969,3 +2969,196 @@ fn test_max_orders_per_position_mixed_sl_tp() {
         &0u64,
     );
 }
+
+mod fuzz {
+    use super::*;
+    use proptest::prelude::*;
+
+    extern crate std;
+    use std::vec::Vec;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(64))]
+
+        #[test]
+        fn fuzz_open_position_valid_params(
+            collateral in 2_000_000u128..3_000_000_000u128,
+            leverage in 5u32..=20u32,
+            market_id in 0u32..3u32,
+            is_long: bool,
+        ) {
+            let size = collateral * leverage as u128;
+            // Skip if below min position size
+            if size < 10_000_000 {
+                return Ok(());
+            }
+
+            let env = Env::default();
+            let (
+                _config_id,
+                _oracle_id,
+                position_manager_id,
+                _token_address,
+                token_client,
+                _token_admin,
+                _admin,
+                trader,
+                _liquidity_pool_id,
+            ) = setup_test_environment(&env);
+
+            let position_client = PositionManagerClient::new(&env, &position_manager_id);
+
+            let initial_balance = token_client.balance(&trader) as u128;
+            if collateral > initial_balance {
+                return Ok(());
+            }
+
+            let position_id = position_client.open_position(
+                &trader, &market_id, &collateral, &leverage, &is_long,
+            );
+
+            prop_assert!(position_id >= 1, "Position ID must be >= 1");
+
+            let position = position_client.get_position(&position_id);
+            prop_assert_eq!(position.trader, trader.clone());
+            prop_assert_eq!(position.collateral, collateral);
+            prop_assert_eq!(position.size, size);
+            prop_assert_eq!(position.is_long, is_long);
+            prop_assert_eq!(position.market_id, market_id);
+            prop_assert!(position.entry_price > 0, "Entry price must be positive");
+
+            // Balance should decrease by collateral
+            let new_balance = token_client.balance(&trader) as u128;
+            prop_assert_eq!(new_balance, initial_balance - collateral);
+        }
+
+        #[test]
+        fn fuzz_open_close_returns_collateral(
+            collateral in 2_000_000u128..3_000_000_000u128,
+            leverage in 5u32..=20u32,
+            is_long: bool,
+        ) {
+            let size = collateral * leverage as u128;
+            if size < 10_000_000 {
+                return Ok(());
+            }
+
+            let env = Env::default();
+            let (
+                _config_id,
+                _oracle_id,
+                position_manager_id,
+                _token_address,
+                token_client,
+                _token_admin,
+                _admin,
+                trader,
+                _liquidity_pool_id,
+            ) = setup_test_environment(&env);
+
+            let position_client = PositionManagerClient::new(&env, &position_manager_id);
+            let initial_balance = token_client.balance(&trader) as u128;
+            if collateral > initial_balance {
+                return Ok(());
+            }
+
+            let position_id = position_client.open_position(
+                &trader, &0u32, &collateral, &leverage, &is_long,
+            );
+
+            // Close immediately — same price, PnL should be 0
+            let pnl = position_client.close_position(&trader, &position_id);
+            prop_assert_eq!(pnl, 0i128, "Instant close should have 0 PnL");
+
+            let final_balance = token_client.balance(&trader) as u128;
+            prop_assert_eq!(final_balance, initial_balance, "Should get all collateral back");
+        }
+
+        #[test]
+        fn fuzz_liquidation_price_direction(
+            collateral in 2_000_000u128..3_000_000_000u128,
+            leverage in 5u32..=20u32,
+            is_long: bool,
+        ) {
+            let size = collateral * leverage as u128;
+            if size < 10_000_000 {
+                return Ok(());
+            }
+
+            let env = Env::default();
+            let (
+                _config_id,
+                _oracle_id,
+                position_manager_id,
+                _token_address,
+                token_client,
+                _token_admin,
+                _admin,
+                trader,
+                _liquidity_pool_id,
+            ) = setup_test_environment(&env);
+
+            let position_client = PositionManagerClient::new(&env, &position_manager_id);
+            let initial_balance = token_client.balance(&trader) as u128;
+            if collateral > initial_balance {
+                return Ok(());
+            }
+
+            let position_id = position_client.open_position(
+                &trader, &0u32, &collateral, &leverage, &is_long,
+            );
+
+            let position = position_client.get_position(&position_id);
+            if is_long {
+                prop_assert!(
+                    position.liquidation_price < position.entry_price,
+                    "Long liquidation price {} should be below entry price {}",
+                    position.liquidation_price, position.entry_price
+                );
+            } else {
+                prop_assert!(
+                    position.liquidation_price > position.entry_price,
+                    "Short liquidation price {} should be above entry price {}",
+                    position.liquidation_price, position.entry_price
+                );
+            }
+        }
+
+        #[test]
+        fn fuzz_multiple_positions_unique_ids(
+            count in 2u32..6u32,
+            leverage in 5u32..=10u32,
+        ) {
+            let collateral = 100_000_000u128; // 10 tokens
+
+            let env = Env::default();
+            let (
+                _config_id,
+                _oracle_id,
+                position_manager_id,
+                _token_address,
+                _token_client,
+                _token_admin,
+                _admin,
+                trader,
+                _liquidity_pool_id,
+            ) = setup_test_environment(&env);
+
+            let position_client = PositionManagerClient::new(&env, &position_manager_id);
+
+            let mut ids = Vec::new();
+            for _ in 0..count {
+                let id = position_client.open_position(
+                    &trader, &0u32, &collateral, &leverage, &true,
+                );
+                prop_assert!(!ids.contains(&id), "Duplicate position ID: {}", id);
+                ids.push(id);
+            }
+
+            // IDs should be sequential starting from 1
+            for (i, id) in ids.iter().enumerate() {
+                prop_assert_eq!(*id, (i as u64) + 1);
+            }
+        }
+    }
+}

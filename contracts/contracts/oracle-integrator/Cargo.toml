@@ -12,6 +12,7 @@ soroban-sdk = "23.0.2"
 
 [dev-dependencies]
 soroban-sdk = { version = "23.0.2", features = ["testutils"] }
+proptest = { workspace = true }
 
 [profile.release]
 opt-level = "z"

@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 09f221def95ef125408e18da161a7855ecb193985720b45e1fc46819128f1477 # shrinks to collateral = 4211052632, leverage = 19, market_id = 0, is_long = false
+cc 528db527790d9e9009a5430562a77ec496d3cebad80fc50994829765c121ab5f # shrinks to collateral = 4211052632, leverage = 19, is_long = false

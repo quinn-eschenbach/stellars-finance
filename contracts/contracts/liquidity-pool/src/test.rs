@@ -323,3 +323,125 @@ fn test_zero_tokens_withdrawal_rejected() {
     // This should panic with "withdrawal too small to return tokens"
     client.withdraw(&user1, &1);
 }
+
+mod fuzz {
+    use super::*;
+    use proptest::prelude::*;
+
+    extern crate std;
+    use std::vec::Vec;
+
+    fn setup_pool(env: &Env) -> (LiquidityPoolClient, token::Client, token::StellarAssetClient, Address) {
+        env.mock_all_auths();
+        let admin = Address::generate(env);
+
+        let contract_address = env.register_stellar_asset_contract_v2(admin.clone());
+        let token_client = token::Client::new(env, &contract_address.address());
+        let token_admin = token::StellarAssetClient::new(env, &contract_address.address());
+
+        let config_manager_id = create_mock_config_manager(env, &admin);
+
+        let contract_id = env.register(LiquidityPool, ());
+        let client = LiquidityPoolClient::new(env, &contract_id);
+        client.initialize(&admin, &config_manager_id, &token_client.address);
+
+        (client, token_client, token_admin, admin)
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn fuzz_deposit_withdraw_roundtrip(
+            amount in 1i128..1_000_000_000i128,
+        ) {
+            let env = Env::default();
+            let (client, token_client, token_admin, _admin) = setup_pool(&env);
+            let user = Address::generate(&env);
+            token_admin.mint(&user, &(amount * 2));
+
+            let shares = client.deposit(&user, &amount);
+            prop_assert!(shares > 0, "Must receive shares for deposit");
+            prop_assert_eq!(shares, amount, "First deposit should be 1:1");
+
+            let returned = client.withdraw(&user, &shares);
+            prop_assert_eq!(returned, amount, "Full withdraw should return deposited amount");
+            prop_assert_eq!(client.get_shares(&user), 0i128);
+        }
+
+        #[test]
+        fn fuzz_share_proportionality(
+            amount1 in 1i128..500_000_000i128,
+            amount2 in 1i128..500_000_000i128,
+        ) {
+            let env = Env::default();
+            let (client, _token_client, token_admin, _admin) = setup_pool(&env);
+            let user1 = Address::generate(&env);
+            let user2 = Address::generate(&env);
+            token_admin.mint(&user1, &(amount1 * 2));
+            token_admin.mint(&user2, &(amount2 * 2));
+
+            let shares1 = client.deposit(&user1, &amount1);
+            let shares2 = client.deposit(&user2, &amount2);
+
+            // Both deposits should get 1:1 shares since pool value = deposits (no PnL)
+            prop_assert_eq!(shares1, amount1);
+            prop_assert_eq!(shares2, amount2);
+
+            let total = client.get_total_shares();
+            prop_assert_eq!(total, amount1 + amount2);
+        }
+
+        #[test]
+        fn fuzz_multiple_depositors_fair_shares(
+            a1 in 100i128..100_000_000i128,
+            a2 in 100i128..100_000_000i128,
+            a3 in 100i128..100_000_000i128,
+        ) {
+            let env = Env::default();
+            let (client, _token_client, token_admin, _admin) = setup_pool(&env);
+
+            let users: Vec<Address> = (0..3).map(|_| Address::generate(&env)).collect();
+            let amounts = [a1, a2, a3];
+
+            for (user, &amount) in users.iter().zip(amounts.iter()) {
+                token_admin.mint(user, &(amount * 2));
+                client.deposit(user, &amount);
+            }
+
+            let total_shares = client.get_total_shares();
+            let total_deposited = a1 + a2 + a3;
+            prop_assert_eq!(total_shares, total_deposited);
+
+            // Each user's share proportion matches their deposit proportion
+            for (user, &amount) in users.iter().zip(amounts.iter()) {
+                let user_shares = client.get_shares(user);
+                prop_assert_eq!(user_shares, amount);
+            }
+        }
+
+        #[test]
+        fn fuzz_partial_withdraw_consistency(
+            deposit in 1000i128..1_000_000_000i128,
+            withdraw_pct in 1u32..100u32,
+        ) {
+            let env = Env::default();
+            let (client, _token_client, token_admin, _admin) = setup_pool(&env);
+            let user = Address::generate(&env);
+            token_admin.mint(&user, &(deposit * 2));
+
+            client.deposit(&user, &deposit);
+
+            let shares_to_withdraw = (deposit * withdraw_pct as i128) / 100;
+            if shares_to_withdraw == 0 {
+                return Ok(());
+            }
+
+            let returned = client.withdraw(&user, &shares_to_withdraw);
+            let remaining_shares = client.get_shares(&user);
+
+            prop_assert_eq!(remaining_shares, deposit - shares_to_withdraw);
+            prop_assert_eq!(returned, shares_to_withdraw, "1:1 pool should return exact share value");
+        }
+    }
+}

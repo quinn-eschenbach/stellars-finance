@@ -193,3 +193,122 @@ fn test_median_with_large_difference() {
     let median = client.calculate_median(&50_000_000, &150_000_000);
     assert_eq!(median, 100_000_000);
 }
+
+mod fuzz {
+    use super::*;
+    use proptest::prelude::*;
+
+    fn setup_oracle(env: &Env, base_price: i128) -> OracleIntegratorClient {
+        env.mock_all_auths();
+        let contract_id = env.register(OracleIntegrator, ());
+        let client = OracleIntegratorClient::new(env, &contract_id);
+        let config_manager = Address::generate(env);
+        let admin = Address::generate(env);
+
+        client.initialize(&config_manager);
+
+        let mut base_prices = Map::new(env);
+        base_prices.set(0, base_price);
+        client.set_test_mode(&admin, &true, &base_prices);
+
+        client
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn fuzz_price_always_positive(
+            base_price in 1_000i128..1_000_000_000_000i128,
+            timestamp in 0u64..100_000u64,
+        ) {
+            let env = Env::default();
+            env.ledger().with_mut(|li| li.timestamp = timestamp);
+            let client = setup_oracle(&env, base_price);
+
+            let price = client.get_price(&0);
+            prop_assert!(price > 0, "Price must be positive, got {}", price);
+        }
+
+        #[test]
+        fn fuzz_price_within_bounds(
+            base_price in 10_000i128..1_000_000_000_000i128,
+            timestamp in 0u64..100_000u64,
+        ) {
+            let env = Env::default();
+            env.ledger().with_mut(|li| li.timestamp = timestamp);
+            let client = setup_oracle(&env, base_price);
+
+            let price = client.get_price(&0);
+            let lower = base_price * 90 / 100;
+            let upper = base_price * 110 / 100;
+            prop_assert!(
+                price >= lower && price <= upper,
+                "Price {} outside ±10% of base {} (range {}-{})",
+                price, base_price, lower, upper
+            );
+        }
+
+        #[test]
+        fn fuzz_fixed_price_determinism(
+            base_price in 1_000i128..1_000_000_000_000i128,
+            timestamp in 0u64..100_000u64,
+        ) {
+            let env = Env::default();
+            env.mock_all_auths();
+            env.ledger().with_mut(|li| li.timestamp = timestamp);
+
+            let contract_id = env.register(OracleIntegrator, ());
+            let client = OracleIntegratorClient::new(&env, &contract_id);
+            let config_manager = Address::generate(&env);
+            let admin = Address::generate(&env);
+
+            client.initialize(&config_manager);
+
+            let mut base_prices = Map::new(&env);
+            base_prices.set(0, base_price);
+            client.set_test_mode(&admin, &true, &base_prices);
+            client.set_fixed_price_mode(&admin, &true);
+
+            let price = client.get_price(&0);
+            prop_assert_eq!(price, base_price, "Fixed price mode should return exact base price");
+        }
+
+        #[test]
+        fn fuzz_median_commutative(
+            a in 1i128..1_000_000_000_000i128,
+            b in 1i128..1_000_000_000_000i128,
+        ) {
+            let env = Env::default();
+            let contract_id = env.register(OracleIntegrator, ());
+            let client = OracleIntegratorClient::new(&env, &contract_id);
+            let config_manager = Address::generate(&env);
+            client.initialize(&config_manager);
+
+            let median_ab = client.calculate_median(&a, &b);
+            let median_ba = client.calculate_median(&b, &a);
+            prop_assert_eq!(median_ab, median_ba, "Median must be commutative");
+        }
+
+        #[test]
+        fn fuzz_median_bounded(
+            a in 1i128..1_000_000_000_000i128,
+            b in 1i128..1_000_000_000_000i128,
+        ) {
+            let env = Env::default();
+            let contract_id = env.register(OracleIntegrator, ());
+            let client = OracleIntegratorClient::new(&env, &contract_id);
+            let config_manager = Address::generate(&env);
+            client.initialize(&config_manager);
+
+            let median = client.calculate_median(&a, &b);
+            let min = a.min(b);
+            let max = a.max(b);
+            prop_assert!(
+                median >= min && median <= max,
+                "Median {} must be between {} and {}",
+                median, min, max
+            );
+        }
+    }
+}

@@ -261,3 +261,148 @@ fn test_get_cumulative_funding() {
 // Note: Comprehensive funding rate testing requires setting up ConfigManager mock
 // which is complex in unit tests. The funding rate logic is tested through
 // the formula implementation and will be verified in integration tests.
+
+mod fuzz {
+    use super::*;
+    use proptest::prelude::*;
+
+    fn setup_market(env: &Env, max_oi: u128) -> (MarketManagerClient, Address, Address) {
+        env.mock_all_auths();
+        let admin = Address::generate(env);
+        let config_manager = Address::generate(env);
+        let position_manager = Address::generate(env);
+
+        let contract_id = env.register(MarketManager, ());
+        let client = MarketManagerClient::new(env, &contract_id);
+
+        client.initialize(&config_manager, &admin);
+        client.set_position_manager(&admin, &position_manager);
+        let ticker = symbol_short!("XLM");
+        client.create_market(&admin, &0u32, &ticker, &max_oi, &10000i128);
+
+        (client, admin, position_manager)
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn fuzz_market_creation_stores_correctly(
+            max_oi in 1u128..1_000_000_000_000u128,
+        ) {
+            let env = Env::default();
+            env.mock_all_auths();
+
+            let admin = Address::generate(&env);
+            let config_manager = Address::generate(&env);
+
+            let contract_id = env.register(MarketManager, ());
+            let client = MarketManagerClient::new(&env, &contract_id);
+
+            client.initialize(&config_manager, &admin);
+            let ticker = symbol_short!("XLM");
+            client.create_market(&admin, &0u32, &ticker, &max_oi, &10000i128);
+
+            let (long_oi, short_oi) = client.get_open_interest(&0u32);
+            prop_assert_eq!(long_oi, 0u128);
+            prop_assert_eq!(short_oi, 0u128);
+            prop_assert_eq!(client.get_funding_rate(&0u32), 0i128);
+        }
+
+        #[test]
+        fn fuzz_oi_increase_within_bounds(
+            max_oi in 100_000u128..1_000_000_000_000u128,
+            oi_fraction in 1u64..10000u64,
+            is_long: bool,
+        ) {
+            let env = Env::default();
+            let (client, _admin, position_manager) = setup_market(&env, max_oi);
+
+            let delta = (max_oi * oi_fraction as u128) / 10000;
+            if delta == 0 {
+                return Ok(());
+            }
+
+            client.update_open_interest(&position_manager, &0u32, &is_long, &(delta as i128));
+
+            let (long_oi, short_oi) = client.get_open_interest(&0u32);
+            if is_long {
+                prop_assert_eq!(long_oi, delta);
+                prop_assert_eq!(short_oi, 0u128);
+            } else {
+                prop_assert_eq!(long_oi, 0u128);
+                prop_assert_eq!(short_oi, delta);
+            }
+        }
+
+        #[test]
+        fn fuzz_oi_increase_decrease_roundtrip(
+            max_oi in 100_000u128..1_000_000_000_000u128,
+            oi_fraction in 1u64..10000u64,
+            decrease_fraction in 1u64..10000u64,
+            is_long: bool,
+        ) {
+            let env = Env::default();
+            let (client, _admin, position_manager) = setup_market(&env, max_oi);
+
+            let delta = (max_oi * oi_fraction as u128) / 10000;
+            if delta == 0 {
+                return Ok(());
+            }
+
+            client.update_open_interest(&position_manager, &0u32, &is_long, &(delta as i128));
+
+            let decrease = (delta * decrease_fraction as u128) / 10000;
+            if decrease == 0 {
+                return Ok(());
+            }
+
+            client.update_open_interest(&position_manager, &0u32, &is_long, &-(decrease as i128));
+
+            let (long_oi, short_oi) = client.get_open_interest(&0u32);
+            let expected = delta - decrease;
+            if is_long {
+                prop_assert_eq!(long_oi, expected);
+            } else {
+                prop_assert_eq!(short_oi, expected);
+            }
+        }
+
+        #[test]
+        fn fuzz_can_open_position_respects_max_oi(
+            max_oi in 1_000u128..1_000_000_000u128,
+            size_fraction in 1u64..20000u64,
+            is_long: bool,
+        ) {
+            let env = Env::default();
+            let (client, _admin, _position_manager) = setup_market(&env, max_oi);
+
+            let size = (max_oi * size_fraction as u128) / 10000;
+            let can_open = client.can_open_position(&0u32, &is_long, &size);
+
+            if size <= max_oi {
+                prop_assert!(can_open, "Should allow size {} <= max_oi {}", size, max_oi);
+            } else {
+                prop_assert!(!can_open, "Should reject size {} > max_oi {}", size, max_oi);
+            }
+        }
+
+        #[test]
+        fn fuzz_pause_blocks_new_positions(
+            max_oi in 1_000u128..1_000_000_000u128,
+            size in 1u128..1_000u128,
+            is_long: bool,
+        ) {
+            let env = Env::default();
+            let (client, admin, _position_manager) = setup_market(&env, max_oi);
+
+            prop_assert!(client.can_open_position(&0u32, &is_long, &size));
+
+            client.pause_market(&admin, &0u32);
+            prop_assert!(!client.can_open_position(&0u32, &is_long, &size));
+
+            client.unpause_market(&admin, &0u32);
+            prop_assert!(client.can_open_position(&0u32, &is_long, &size));
+        }
+    }
+}
