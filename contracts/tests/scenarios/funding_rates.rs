@@ -1,6 +1,6 @@
 use soroban_sdk::Env;
 
-use crate::common::{assertions::*, oracle_integrator, position_manager, market_manager, setup::*, time_helpers::*};
+use crate::common::{assertions::*, config_manager, oracle_integrator, position_manager, market_manager, setup::*, time_helpers::*};
 
 #[test]
 fn test_funding_accumulation_over_time() {
@@ -13,6 +13,10 @@ fn test_funding_accumulation_over_time() {
     // Enable fixed price mode so we can test funding in isolation (without price PnL)
     let oracle_client = oracle_integrator::Client::new(&env, &test_env.oracle_id);
     oracle_client.set_fixed_price_mode(&test_env.admin, &true);
+
+    // Disable borrowing fees to isolate funding rate effects
+    let config_client = config_manager::Client::new(&env, &test_env.config_manager_id);
+    config_client.set_borrow_rate_per_second(&test_env.admin, &0);
 
     let market_id = 0u32;
     let collateral = 1_000_000_000u128;
@@ -67,6 +71,10 @@ fn test_funding_long_heavy_market() {
     // Enable fixed price mode so we can test funding in isolation
     let oracle_client = oracle_integrator::Client::new(&env, &test_env.oracle_id);
     oracle_client.set_fixed_price_mode(&test_env.admin, &true);
+
+    // Disable borrowing fees to isolate funding rate effects
+    let config_client = config_manager::Client::new(&env, &test_env.config_manager_id);
+    config_client.set_borrow_rate_per_second(&test_env.admin, &0);
 
     let market_id = 0u32;
     let collateral = 1_000_000_000u128;
@@ -188,6 +196,10 @@ fn test_funding_realization_on_close() {
     let oracle_client = oracle_integrator::Client::new(&env, &test_env.oracle_id);
     oracle_client.set_fixed_price_mode(&test_env.admin, &true);
 
+    // Disable borrowing fees to isolate funding rate effects
+    let config_client = config_manager::Client::new(&env, &test_env.config_manager_id);
+    config_client.set_borrow_rate_per_second(&test_env.admin, &0);
+
     let market_id = 0u32;
     let collateral = 1_000_000_000u128;
     let leverage = 10u32;
@@ -230,6 +242,10 @@ fn test_multiple_funding_intervals() {
     // Enable fixed price mode so we can test funding in isolation
     let oracle_client = oracle_integrator::Client::new(&env, &test_env.oracle_id);
     oracle_client.set_fixed_price_mode(&test_env.admin, &true);
+
+    // Disable borrowing fees to isolate funding rate effects
+    let config_client = config_manager::Client::new(&env, &test_env.config_manager_id);
+    config_client.set_borrow_rate_per_second(&test_env.admin, &0);
 
     let market_id = 0u32;
     let collateral = 1_000_000_000u128;

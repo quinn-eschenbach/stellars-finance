@@ -39,6 +39,11 @@ mod market_manager {
     soroban_sdk::contractimport!(file = "../../target/wasm32v1-none/release/market_manager.wasm");
 }
 
+#[cfg(not(test))]
+mod custom_oracle {
+    soroban_sdk::contractimport!(file = "../../target/wasm32v1-none/release/custom_oracle.wasm");
+}
+
 mod reflector;
 #[cfg(not(test))]
 use reflector::{Asset, ReflectorClient};
@@ -264,10 +269,15 @@ impl OracleIntegrator {
             return price;
         }
 
-        // Production mode: fetch from Reflector oracle
+        // Production mode: fetch from custom oracle
         #[cfg(not(test))]
         {
-            let (price, timestamp) = Self::fetch_reflector_price(env.clone(), market_id);
+            let config_manager_addr = get_config_manager(&env);
+            let config_client = config_manager::Client::new(&env, &config_manager_addr);
+            let custom_oracle_addr = config_client.custom_oracle();
+            let custom_oracle_client = custom_oracle::Client::new(&env, &custom_oracle_addr);
+
+            let (price, timestamp) = custom_oracle_client.get_price_with_timestamp(&market_id);
 
             // Validate the price
             validate_oracle_price(&env, price, timestamp);

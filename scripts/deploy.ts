@@ -44,6 +44,7 @@ const deployments: DeploymentResult[] = [];
 const contracts = [
   { name: 'faucet-token', alias: CONTRACT_ALIASES.faucetToken },
   { name: 'config-manager', alias: CONTRACT_ALIASES.configManager },
+  { name: 'custom-oracle', alias: CONTRACT_ALIASES.customOracle },
   { name: 'oracle-integrator', alias: CONTRACT_ALIASES.oracleIntegrator },
   { name: 'liquidity-pool', alias: CONTRACT_ALIASES.liquidityPool },
   { name: 'market-manager', alias: CONTRACT_ALIASES.marketManager },

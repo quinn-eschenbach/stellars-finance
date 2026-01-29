@@ -17,6 +17,7 @@ CONTRACTS=(
   "config-manager"
   "market-manager"
   "oracle-integrator"
+  "custom-oracle"
   "faucet-token"
 )
 

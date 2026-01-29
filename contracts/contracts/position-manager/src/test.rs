@@ -2,7 +2,7 @@
 
 use super::*;
 use soroban_sdk::log;
-use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, token, Address, Env, Map};
+use soroban_sdk::{symbol_short, testutils::Address as _, testutils::Ledger as _, token, Address, Env, Map};
 
 // Import the actual contracts for integration testing
 use crate::config_manager;
@@ -90,9 +90,9 @@ fn setup_test_environment<'a>(
     liquidity_client.set_position_manager(&admin, &position_manager_id);
 
     // Create test markets
-    market_client.create_market(&admin, &0u32, &1_000_000_000_000u128, &10000i128); // XLM-PERP
-    market_client.create_market(&admin, &1u32, &1_000_000_000_000u128, &10000i128); // BTC-PERP
-    market_client.create_market(&admin, &2u32, &1_000_000_000_000u128, &10000i128); // ETH-PERP
+    market_client.create_market(&admin, &0u32, &symbol_short!("XLM"), &1_000_000_000_000u128, &10000i128); // XLM-PERP
+    market_client.create_market(&admin, &1u32, &symbol_short!("BTC"), &1_000_000_000_000u128, &10000i128); // BTC-PERP
+    market_client.create_market(&admin, &2u32, &symbol_short!("ETH"), &1_000_000_000_000u128, &10000i128); // ETH-PERP
 
     // Mint tokens to trader for testing
     token_admin.mint(&trader, &10_000_000_000); // 10,000 tokens with 7 decimals

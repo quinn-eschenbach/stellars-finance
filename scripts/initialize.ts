@@ -23,6 +23,7 @@ import { NETWORK_CONFIGS } from './config';
 import { Client as FaucetTokenClient } from '@stellars-finance/faucet-token';
 import { Client as ConfigManagerClient } from '@stellars-finance/config-manager';
 import { Client as OracleIntegratorClient } from '@stellars-finance/oracle-integrator';
+import { Client as CustomOracleClient } from '@stellars-finance/custom-oracle';
 import { Client as LiquidityPoolClient } from '@stellars-finance/liquidity-pool';
 import { Client as PositionManagerClient } from '@stellars-finance/position-manager';
 import { Client as MarketManagerClient } from '@stellars-finance/market-manager';
@@ -221,6 +222,58 @@ async function main() {
       }
     });
     console.log('   ✓ OracleIntegrator initialized\n');
+
+    // 3b. Initialize CustomOracle
+    console.log('   → Initializing CustomOracle...');
+    const customOracleClient = new CustomOracleClient({
+      ...clientOptions,
+      contractId: contracts['custom-oracle'],
+    });
+
+    const customOracleInitTx = await customOracleClient.initialize({
+      admin: publicKey,
+    });
+
+    await customOracleInitTx.signAndSend({
+      signTransaction: async (xdr: string) => {
+        const tx = TransactionBuilder.fromXDR(xdr, networkConfig.networkPassphrase);
+        tx.sign(sourceKeypair);
+        return { signedTxXdr: tx.toXDR() };
+      }
+    });
+    console.log('   ✓ CustomOracle initialized');
+
+    // 3c. Add deployer as authorized price pusher
+    console.log('   → Adding deployer as authorized price pusher...');
+    const addPusherTx = await customOracleClient.add_pusher({
+      admin: publicKey,
+      pusher: publicKey,
+    });
+
+    await addPusherTx.signAndSend({
+      signTransaction: async (xdr: string) => {
+        const tx = TransactionBuilder.fromXDR(xdr, networkConfig.networkPassphrase);
+        tx.sign(sourceKeypair);
+        return { signedTxXdr: tx.toXDR() };
+      }
+    });
+    console.log('   ✓ Deployer added as price pusher');
+
+    // 3d. Register custom oracle in ConfigManager
+    console.log('   → Registering custom oracle in ConfigManager...');
+    const setCustomOracleTx = await configManagerClient.set_custom_oracle({
+      admin: publicKey,
+      contract: contracts['custom-oracle'],
+    });
+
+    await setCustomOracleTx.signAndSend({
+      signTransaction: async (xdr: string) => {
+        const tx = TransactionBuilder.fromXDR(xdr, networkConfig.networkPassphrase);
+        tx.sign(sourceKeypair);
+        return { signedTxXdr: tx.toXDR() };
+      }
+    });
+    console.log('   ✓ Custom oracle registered in ConfigManager\n');
 
     // 4. Initialize LiquidityPool
     console.log('4️⃣  Initializing LiquidityPool...');

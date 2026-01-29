@@ -1,4 +1,4 @@
-use soroban_sdk::{token, Address, Env, Vec};
+use soroban_sdk::{symbol_short, token, Address, Env, Vec};
 use soroban_sdk::testutils::Address as _;
 
 // Import contract WASMs for integration testing
@@ -32,11 +32,18 @@ pub mod position_manager {
     );
 }
 
+pub mod custom_oracle {
+    soroban_sdk::contractimport!(
+        file = "../target/wasm32v1-none/release/custom_oracle.wasm"
+    );
+}
+
 /// Enhanced test environment with multi-user support
 pub struct TestEnvironment<'a> {
     pub env: &'a Env,
     pub config_manager_id: Address,
     pub oracle_id: Address,
+    pub custom_oracle_id: Address,
     pub position_manager_id: Address,
     pub market_manager_id: Address,
     pub liquidity_pool_id: Address,
@@ -93,6 +100,19 @@ pub fn setup_test_environment<'a>(
     base_prices.set(2u32, 3_000_000_000_000i128);  // ETH: $3,000
     oracle_client.set_test_mode(&admin, &true, &base_prices);
 
+    // Deploy CustomOracle
+    let custom_oracle_id = env.register(custom_oracle::WASM, ());
+    let custom_oracle_client = custom_oracle::Client::new(env, &custom_oracle_id);
+    custom_oracle_client.initialize(&admin);
+    custom_oracle_client.add_pusher(&admin, &admin);
+
+    // Push initial prices to custom oracle
+    let mut custom_prices = soroban_sdk::Map::new(env);
+    custom_prices.set(0u32, 100_000_000i128);        // XLM: $0.10
+    custom_prices.set(1u32, 50_000_000_000_000i128); // BTC: $50,000
+    custom_prices.set(2u32, 3_000_000_000_000i128);  // ETH: $3,000
+    custom_oracle_client.push_prices(&admin, &custom_prices);
+
     // Deploy MarketManager
     let market_manager_id = env.register(market_manager::WASM, ());
     let market_client = market_manager::Client::new(env, &market_manager_id);
@@ -110,6 +130,7 @@ pub fn setup_test_environment<'a>(
 
     // Configure ConfigManager with contract addresses
     config_client.set_oracle_integrator(&admin, &oracle_id);
+    config_client.set_custom_oracle(&admin, &custom_oracle_id);
     config_client.set_market_manager(&admin, &market_manager_id);
     config_client.set_liquidity_pool(&admin, &liquidity_pool_id);
     config_client.set_position_manager(&admin, &position_manager_id);
@@ -122,9 +143,9 @@ pub fn setup_test_environment<'a>(
     liquidity_client.set_position_manager(&admin, &position_manager_id);
 
     // Create test markets
-    market_client.create_market(&admin, &0u32, &1_000_000_000_000u128, &10000i128); // XLM-PERP
-    market_client.create_market(&admin, &1u32, &1_000_000_000_000u128, &10000i128); // BTC-PERP
-    market_client.create_market(&admin, &2u32, &1_000_000_000_000u128, &10000i128); // ETH-PERP
+    market_client.create_market(&admin, &0u32, &symbol_short!("XLM"), &1_000_000_000_000u128, &10000i128); // XLM-PERP
+    market_client.create_market(&admin, &1u32, &symbol_short!("BTC"), &1_000_000_000_000u128, &10000i128); // BTC-PERP
+    market_client.create_market(&admin, &2u32, &symbol_short!("ETH"), &1_000_000_000_000u128, &10000i128); // ETH-PERP
 
     // Create multiple traders
     let mut traders = Vec::new(env);
@@ -150,6 +171,7 @@ pub fn setup_test_environment<'a>(
         env,
         config_manager_id,
         oracle_id,
+        custom_oracle_id,
         position_manager_id,
         market_manager_id,
         liquidity_pool_id,

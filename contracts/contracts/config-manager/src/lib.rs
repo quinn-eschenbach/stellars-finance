@@ -34,6 +34,7 @@ pub enum DataKey {
     PositionManagerContract,
     MarketManagerContract,
     OracleIntegratorContract,
+    CustomOracleContract,
     DiaOracleContract,
     ReflectorOracleContract,
     TokenContract,
@@ -377,6 +378,17 @@ impl ConfigManager {
     /// The Oracle Integrator contract address
     pub fn oracle_integrator(env: Env) -> Address {
         get_contract_address(&env, &DataKey::OracleIntegratorContract)
+    }
+
+    /// Set the Custom Oracle contract address.
+    pub fn set_custom_oracle(env: Env, admin: Address, contract: Address) {
+        require_admin(&env, &admin);
+        put_contract_address(&env, &DataKey::CustomOracleContract, &contract);
+    }
+
+    /// Get the Custom Oracle contract address.
+    pub fn custom_oracle(env: Env) -> Address {
+        get_contract_address(&env, &DataKey::CustomOracleContract)
     }
 
     /// Set the Token contract address.

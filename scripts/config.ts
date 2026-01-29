@@ -20,6 +20,7 @@ export interface ContractAddresses {
   configManager: string;
   marketManager: string;
   oracleIntegrator: string;
+  customOracle: string;
 }
 
 interface DeploymentData {
@@ -62,6 +63,7 @@ function loadContractAddresses(network: NetworkType): Partial<ContractAddresses>
       configManager: deploymentData.contracts['config-manager'],
       marketManager: deploymentData.contracts['market-manager'],
       oracleIntegrator: deploymentData.contracts['oracle-integrator'],
+      customOracle: deploymentData.contracts['custom-oracle'],
     };
   } catch (error) {
     console.error(`Failed to load deployment data for ${network}:`, error);
@@ -83,6 +85,7 @@ export const CONTRACT_ALIASES = {
   configManager: 'config-manager',
   marketManager: 'market-manager',
   oracleIntegrator: 'oracle-integrator',
+  customOracle: 'custom-oracle',
 } as const;
 
 export function getNetworkConfig(network: NetworkType): NetworkConfig {
